@@ -4,8 +4,14 @@
   box-sizing: border-box;
 }
 
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
+    "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP",
+    sans-serif;
+}
+
 body {
-  font-family: "Zen Kaku Gothic New", "Hiragino Sans", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .konote-app {
@@ -78,7 +84,7 @@ body {
   margin: 0 0 10px;
 }
 .konote-title {
-  font-family: "Zen Maru Gothic", sans-serif;
+  font-family: var(--font-sans);
   font-weight: 900;
   font-size: 34px;
   color: var(--cream);
@@ -184,7 +190,7 @@ body {
   gap: 12px;
 }
 .konote-title-sm {
-  font-family: "Zen Maru Gothic", sans-serif;
+  font-family: var(--font-sans);
   font-weight: 700;
   font-size: 20px;
   color: var(--cream);
@@ -333,7 +339,7 @@ body {
   letter-spacing: 0.03em;
 }
 .konote-stamp-weekday {
-  font-family: "Zen Maru Gothic", sans-serif;
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 700;
 }
@@ -368,7 +374,7 @@ body {
   font-size: 11px;
 }
 .konote-entry-author {
-  font-family: "Zen Maru Gothic", sans-serif;
+  font-family: var(--font-sans);
   font-weight: 700;
   font-size: 13px;
 }
@@ -503,7 +509,7 @@ body {
   margin-bottom: 16px;
 }
 .konote-modal-head h2 {
-  font-family: "Zen Maru Gothic", sans-serif;
+  font-family: var(--font-sans);
   font-size: 17px;
   margin: 0;
   color: var(--ink-text);
