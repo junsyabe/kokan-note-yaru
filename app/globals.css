@@ -75,6 +75,10 @@ body {
   height: 64px;
   background: var(--wine);
   clip-path: polygon(0 0, 100% 0, 100% 85%, 50% 100%, 0 85%);
+  pointer-events: none;
+}
+.konote-header .konote-ribbon {
+  right: 6px;
 }
 .konote-eyebrow {
   font-family: "JetBrains Mono", monospace;
@@ -199,6 +203,9 @@ body {
 .konote-header-actions {
   display: flex;
   gap: 8px;
+  margin-right: 28px;
+  position: relative;
+  z-index: 1;
 }
 .konote-icon-btn {
   border: 1px solid rgba(246, 240, 225, 0.25);
