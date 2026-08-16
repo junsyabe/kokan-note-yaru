@@ -649,6 +649,12 @@ body {
   font-weight: 700;
   color: var(--ink-text);
 }
+.konote-profile-stat-unit {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted-text);
+  margin-left: 5px;
+}
 .konote-profile-logout {
   width: 100%;
   border: 1px solid rgba(147, 68, 91, 0.4);

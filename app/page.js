@@ -22,6 +22,13 @@ function formatDateStamp(dateStr) {
   return { main: `${m}/${day}`, weekday: wd };
 }
 
+function formatDateStampWithYear(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const y = d.getFullYear();
+  const wd = WEEKDAY_KANJI[d.getDay()];
+  return { main: `${y}/${d.getMonth() + 1}/${d.getDate()}`, weekday: wd };
+}
+
 function stampRotation(dateStr) {
   let h = 0;
   for (let i = 0; i < dateStr.length; i++) h = (h * 31 + dateStr.charCodeAt(i)) % 7;
@@ -699,35 +706,52 @@ export default function HomePage() {
               <div className="konote-profile-stats">
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">投稿数</span>
-                  <span className="konote-profile-stat-value">{profileStats.count}件</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.count}
+                    <span className="konote-profile-stat-unit">件</span>
+                  </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">合計文字数</span>
-                  <span className="konote-profile-stat-value">{profileStats.totalChars}文字</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.totalChars}
+                    <span className="konote-profile-stat-unit">文字</span>
+                  </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">平均文字数</span>
-                  <span className="konote-profile-stat-value">{profileStats.avgChars}文字</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.avgChars}
+                    <span className="konote-profile-stat-unit">文字</span>
+                  </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">連続投稿(現在)</span>
-                  <span className="konote-profile-stat-value">{profileStats.currentStreak}日</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.currentStreak}
+                    <span className="konote-profile-stat-unit">日</span>
+                  </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">初投稿日</span>
                   <span className="konote-profile-stat-value">
-                    {formatDateStamp(profileStats.firstDate).main}({formatDateStamp(profileStats.firstDate).weekday})
+                    {formatDateStampWithYear(profileStats.firstDate).main}
+                    ({formatDateStampWithYear(profileStats.firstDate).weekday})
                   </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">最終投稿日</span>
                   <span className="konote-profile-stat-value">
-                    {formatDateStamp(profileStats.lastDate).main}({formatDateStamp(profileStats.lastDate).weekday})
+                    {formatDateStampWithYear(profileStats.lastDate).main}
+                    ({formatDateStampWithYear(profileStats.lastDate).weekday})
                   </span>
                 </div>
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">連続投稿(自己ベスト)</span>
-                  <span className="konote-profile-stat-value">{profileStats.bestStreak}日</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.bestStreak}
+                    <span className="konote-profile-stat-unit">日</span>
+                  </span>
                 </div>
               </div>
             )}
