@@ -35,12 +35,15 @@ function formatTime(iso) {
   return `${hh}:${mm}`;
 }
 
-function todayStr() {
-  const d = new Date();
+function dateStrFromDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function todayStr() {
+  return dateStrFromDate(new Date());
 }
 
 export default function HomePage() {
@@ -74,6 +77,8 @@ export default function HomePage() {
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editCommentDraft, setEditCommentDraft] = useState("");
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
+
+  const [showProfile, setShowProfile] = useState(false);
 
   // --- auth bootstrap ---
   useEffect(() => {
@@ -262,6 +267,47 @@ export default function HomePage() {
     loadEntries();
   };
 
+  // --- profile stats (derived from already-loaded entries, no extra queries) ---
+  const profileStats = useMemo(() => {
+    const myEntries = entries.filter((e) => e.author_name === myName);
+    const count = myEntries.length;
+    if (count === 0) {
+      return { count: 0 };
+    }
+
+    const totalChars = myEntries.reduce((sum, e) => sum + e.content.length, 0);
+    const avgChars = Math.round(totalChars / count);
+
+    const uniqueDates = Array.from(new Set(myEntries.map((e) => e.entry_date))).sort();
+    const firstDate = uniqueDates[0];
+    const lastDate = uniqueDates[uniqueDates.length - 1];
+
+    let bestStreak = 1;
+    let run = 1;
+    for (let i = 1; i < uniqueDates.length; i++) {
+      const prev = new Date(uniqueDates[i - 1] + "T00:00:00");
+      const cur = new Date(uniqueDates[i] + "T00:00:00");
+      const diffDays = Math.round((cur - prev) / 86400000);
+      run = diffDays === 1 ? run + 1 : 1;
+      if (run > bestStreak) bestStreak = run;
+    }
+
+    const dateSet = new Set(uniqueDates);
+    const today = todayStr();
+    const yesterday = dateStrFromDate(new Date(Date.now() - 86400000));
+    let currentStreak = 0;
+    let cursorDate = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
+    if (cursorDate) {
+      let cursor = new Date(cursorDate + "T00:00:00");
+      while (dateSet.has(dateStrFromDate(cursor))) {
+        currentStreak += 1;
+        cursor = new Date(cursor.getTime() - 86400000);
+      }
+    }
+
+    return { count, totalChars, avgChars, firstDate, lastDate, currentStreak, bestStreak };
+  }, [entries, myName]);
+
   // --- grouping ---
   const uniqueAuthors = useMemo(
     () =>
@@ -390,16 +436,18 @@ export default function HomePage() {
             <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
             <h1 className="konote-title-sm">こうかんノート</h1>
           </div>
-          <div className="konote-header-actions">
-            <button className="konote-icon-btn" onClick={handleLogout} aria-label="ログアウト" title="ログアウト">
-              ⏻
-            </button>
-          </div>
         </div>
         <div className="konote-me-row">
-          <span className="konote-me-avatar" style={{ background: colorForName(myName) }}>
+          <button
+            type="button"
+            className="konote-me-avatar konote-me-avatar-btn"
+            style={{ background: colorForName(myName) }}
+            onClick={() => setShowProfile(true)}
+            aria-label="プロフィールを表示"
+            title="プロフィールを表示"
+          >
             {myName.charAt(0)}
-          </span>
+          </button>
           <span className="konote-me-name">{myName} さんとして参加中</span>
         </div>
       </header>
@@ -623,6 +671,69 @@ export default function HomePage() {
             />
             <button className="konote-submit-btn" onClick={handlePost} disabled={!newContent.trim() || posting}>
               {posting ? "投稿中…" : "ノートに書く"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showProfile && (
+        <div className="konote-modal-backdrop" onClick={() => setShowProfile(false)}>
+          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="konote-modal-head">
+              <h2>プロフィール</h2>
+              <button className="konote-modal-close" onClick={() => setShowProfile(false)} aria-label="閉じる">
+                ✕
+              </button>
+            </div>
+
+            <div className="konote-profile-head">
+              <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(myName) }}>
+                {myName.charAt(0)}
+              </span>
+              <span className="konote-profile-name">{myName}</span>
+            </div>
+
+            {profileStats.count === 0 ? (
+              <p className="konote-profile-empty">まだ投稿がありません。</p>
+            ) : (
+              <div className="konote-profile-stats">
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">投稿数</span>
+                  <span className="konote-profile-stat-value">{profileStats.count}件</span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">合計文字数</span>
+                  <span className="konote-profile-stat-value">{profileStats.totalChars}文字</span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">平均文字数</span>
+                  <span className="konote-profile-stat-value">{profileStats.avgChars}文字</span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">連続投稿(現在)</span>
+                  <span className="konote-profile-stat-value">{profileStats.currentStreak}日</span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">初投稿日</span>
+                  <span className="konote-profile-stat-value">
+                    {formatDateStamp(profileStats.firstDate).main}({formatDateStamp(profileStats.firstDate).weekday})
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">最終投稿日</span>
+                  <span className="konote-profile-stat-value">
+                    {formatDateStamp(profileStats.lastDate).main}({formatDateStamp(profileStats.lastDate).weekday})
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">連続投稿(自己ベスト)</span>
+                  <span className="konote-profile-stat-value">{profileStats.bestStreak}日</span>
+                </div>
+              </div>
+            )}
+
+            <button className="konote-profile-logout" onClick={handleLogout}>
+              ログアウト
             </button>
           </div>
         </div>
