@@ -409,16 +409,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2px 4px;
+  padding: 4px 6px;
   flex-shrink: 0;
-  font-size: 13px;
+  font-size: 19px;
   line-height: 1;
 }
 .konote-edit-btn:hover {
   color: var(--kon-peki);
 }
 .konote-edit-btn-sm {
-  font-size: 11px;
+  font-size: 16px;
   align-self: flex-start;
 }
 .konote-edit-block {
