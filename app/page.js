@@ -22,6 +22,13 @@ function formatDateStamp(dateStr) {
   return { main: `${m}/${day}`, weekday: wd };
 }
 
+function formatDateStampWithYear(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const y = d.getFullYear();
+  const wd = WEEKDAY_KANJI[d.getDay()];
+  return { main: `${y}/${d.getMonth() + 1}/${d.getDate()}`, weekday: wd };
+}
+
 function stampRotation(dateStr) {
   let h = 0;
   for (let i = 0; i < dateStr.length; i++) h = (h * 31 + dateStr.charCodeAt(i)) % 7;
@@ -35,12 +42,15 @@ function formatTime(iso) {
   return `${hh}:${mm}`;
 }
 
-function todayStr() {
-  const d = new Date();
+function dateStrFromDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function todayStr() {
+  return dateStrFromDate(new Date());
 }
 
 export default function HomePage() {
@@ -74,6 +84,8 @@ export default function HomePage() {
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editCommentDraft, setEditCommentDraft] = useState("");
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
+
+  const [profileTarget, setProfileTarget] = useState(null);
 
   // --- auth bootstrap ---
   useEffect(() => {
@@ -262,6 +274,48 @@ export default function HomePage() {
     loadEntries();
   };
 
+  // --- profile stats (derived from already-loaded entries, no extra queries) ---
+  const profileStats = useMemo(() => {
+    if (!profileTarget) return { count: 0 };
+    const theirEntries = entries.filter((e) => e.author_name === profileTarget);
+    const count = theirEntries.length;
+    if (count === 0) {
+      return { count: 0 };
+    }
+
+    const totalChars = theirEntries.reduce((sum, e) => sum + e.content.length, 0);
+    const avgChars = Math.round(totalChars / count);
+
+    const uniqueDates = Array.from(new Set(theirEntries.map((e) => e.entry_date))).sort();
+    const firstDate = uniqueDates[0];
+    const lastDate = uniqueDates[uniqueDates.length - 1];
+
+    let bestStreak = 1;
+    let run = 1;
+    for (let i = 1; i < uniqueDates.length; i++) {
+      const prev = new Date(uniqueDates[i - 1] + "T00:00:00");
+      const cur = new Date(uniqueDates[i] + "T00:00:00");
+      const diffDays = Math.round((cur - prev) / 86400000);
+      run = diffDays === 1 ? run + 1 : 1;
+      if (run > bestStreak) bestStreak = run;
+    }
+
+    const dateSet = new Set(uniqueDates);
+    const today = todayStr();
+    const yesterday = dateStrFromDate(new Date(Date.now() - 86400000));
+    let currentStreak = 0;
+    let cursorDate = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
+    if (cursorDate) {
+      let cursor = new Date(cursorDate + "T00:00:00");
+      while (dateSet.has(dateStrFromDate(cursor))) {
+        currentStreak += 1;
+        cursor = new Date(cursor.getTime() - 86400000);
+      }
+    }
+
+    return { count, totalChars, avgChars, firstDate, lastDate, currentStreak, bestStreak };
+  }, [entries, profileTarget]);
+
   // --- grouping ---
   const uniqueAuthors = useMemo(
     () =>
@@ -390,16 +444,18 @@ export default function HomePage() {
             <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
             <h1 className="konote-title-sm">こうかんノート</h1>
           </div>
-          <div className="konote-header-actions">
-            <button className="konote-icon-btn" onClick={handleLogout} aria-label="ログアウト" title="ログアウト">
-              ⏻
-            </button>
-          </div>
         </div>
         <div className="konote-me-row">
-          <span className="konote-me-avatar" style={{ background: colorForName(myName) }}>
+          <button
+            type="button"
+            className="konote-me-avatar konote-me-avatar-btn"
+            style={{ background: colorForName(myName) }}
+            onClick={() => setProfileTarget(myName)}
+            aria-label="プロフィールを表示"
+            title="プロフィールを表示"
+          >
             {myName.charAt(0)}
-          </span>
+          </button>
           <span className="konote-me-name">{myName} さんとして参加中</span>
         </div>
       </header>
@@ -461,10 +517,22 @@ export default function HomePage() {
                   <article className="konote-entry" key={entry.id}>
                     <span className="konote-entry-tab" style={{ background: colorForName(entry.author_name) }} />
                     <div className="konote-entry-head">
-                      <span className="konote-avatar" style={{ background: colorForName(entry.author_name) }}>
+                      <button
+                        type="button"
+                        className="konote-avatar konote-tap-avatar"
+                        style={{ background: colorForName(entry.author_name) }}
+                        onClick={() => setProfileTarget(entry.author_name)}
+                        aria-label={`${entry.author_name}さんのプロフィールを見る`}
+                      >
                         {entry.author_name.charAt(0)}
-                      </span>
-                      <span className="konote-entry-author">{entry.author_name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="konote-entry-author konote-tap-name"
+                        onClick={() => setProfileTarget(entry.author_name)}
+                      >
+                        {entry.author_name}
+                      </button>
                       {entry.updated_at !== entry.created_at && (
                         <span className="konote-edited-tag">(編集済み)</span>
                       )}
@@ -513,16 +581,26 @@ export default function HomePage() {
                     <div className="konote-comments">
                       {(entry.comments || []).map((c) => (
                         <div className="konote-comment" key={c.id}>
-                          <span className="konote-comment-avatar" style={{ background: colorForName(c.author_name) }}>
+                          <button
+                            type="button"
+                            className="konote-comment-avatar konote-tap-avatar"
+                            style={{ background: colorForName(c.author_name) }}
+                            onClick={() => setProfileTarget(c.author_name)}
+                            aria-label={`${c.author_name}さんのプロフィールを見る`}
+                          >
                             {c.author_name.charAt(0)}
-                          </span>
+                          </button>
                           <div className="konote-comment-body">
-                            <span className="konote-comment-author">
+                            <button
+                              type="button"
+                              className="konote-comment-author konote-tap-name"
+                              onClick={() => setProfileTarget(c.author_name)}
+                            >
                               {c.author_name}
                               {c.updated_at !== c.created_at && (
                                 <span className="konote-edited-tag-sm">(編集済み)</span>
                               )}
-                            </span>
+                            </button>
                             {editingCommentId === c.id ? (
                               <div className="konote-edit-block konote-edit-block-sm">
                                 <textarea
@@ -624,6 +702,89 @@ export default function HomePage() {
             <button className="konote-submit-btn" onClick={handlePost} disabled={!newContent.trim() || posting}>
               {posting ? "投稿中…" : "ノートに書く"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {profileTarget && (
+        <div className="konote-modal-backdrop" onClick={() => setProfileTarget(null)}>
+          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="konote-modal-head">
+              <h2>プロフィール</h2>
+              <button className="konote-modal-close" onClick={() => setProfileTarget(null)} aria-label="閉じる">
+                ✕
+              </button>
+            </div>
+
+            <div className="konote-profile-head">
+              <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(profileTarget) }}>
+                {profileTarget.charAt(0)}
+              </span>
+              <span className="konote-profile-name">{profileTarget}</span>
+            </div>
+
+            {profileStats.count === 0 ? (
+              <p className="konote-profile-empty">まだ投稿がありません。</p>
+            ) : (
+              <div className="konote-profile-stats">
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">投稿数</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.count}
+                    <span className="konote-profile-stat-unit">件</span>
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">合計文字数</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.totalChars}
+                    <span className="konote-profile-stat-unit">文字</span>
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">平均文字数</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.avgChars}
+                    <span className="konote-profile-stat-unit">文字</span>
+                  </span>
+                </div>
+                <div aria-hidden="true" />
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">連続投稿(現在)</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.currentStreak}
+                    <span className="konote-profile-stat-unit">日</span>
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">連続投稿(自己ベスト)</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.bestStreak}
+                    <span className="konote-profile-stat-unit">日</span>
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">初投稿日</span>
+                  <span className="konote-profile-stat-value">
+                    {formatDateStampWithYear(profileStats.firstDate).main}
+                    ({formatDateStampWithYear(profileStats.firstDate).weekday})
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">最終投稿日</span>
+                  <span className="konote-profile-stat-value">
+                    {formatDateStampWithYear(profileStats.lastDate).main}
+                    ({formatDateStampWithYear(profileStats.lastDate).weekday})
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {profileTarget === myName && (
+              <button className="konote-profile-logout" onClick={handleLogout}>
+                ログアウト
+              </button>
+            )}
           </div>
         </div>
       )}
