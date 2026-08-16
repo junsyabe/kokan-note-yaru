@@ -85,7 +85,7 @@ export default function HomePage() {
   const [editCommentDraft, setEditCommentDraft] = useState("");
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
 
-  const [showProfile, setShowProfile] = useState(false);
+  const [profileTarget, setProfileTarget] = useState(null);
 
   // --- auth bootstrap ---
   useEffect(() => {
@@ -276,16 +276,17 @@ export default function HomePage() {
 
   // --- profile stats (derived from already-loaded entries, no extra queries) ---
   const profileStats = useMemo(() => {
-    const myEntries = entries.filter((e) => e.author_name === myName);
-    const count = myEntries.length;
+    if (!profileTarget) return { count: 0 };
+    const theirEntries = entries.filter((e) => e.author_name === profileTarget);
+    const count = theirEntries.length;
     if (count === 0) {
       return { count: 0 };
     }
 
-    const totalChars = myEntries.reduce((sum, e) => sum + e.content.length, 0);
+    const totalChars = theirEntries.reduce((sum, e) => sum + e.content.length, 0);
     const avgChars = Math.round(totalChars / count);
 
-    const uniqueDates = Array.from(new Set(myEntries.map((e) => e.entry_date))).sort();
+    const uniqueDates = Array.from(new Set(theirEntries.map((e) => e.entry_date))).sort();
     const firstDate = uniqueDates[0];
     const lastDate = uniqueDates[uniqueDates.length - 1];
 
@@ -313,7 +314,7 @@ export default function HomePage() {
     }
 
     return { count, totalChars, avgChars, firstDate, lastDate, currentStreak, bestStreak };
-  }, [entries, myName]);
+  }, [entries, profileTarget]);
 
   // --- grouping ---
   const uniqueAuthors = useMemo(
@@ -449,7 +450,7 @@ export default function HomePage() {
             type="button"
             className="konote-me-avatar konote-me-avatar-btn"
             style={{ background: colorForName(myName) }}
-            onClick={() => setShowProfile(true)}
+            onClick={() => setProfileTarget(myName)}
             aria-label="プロフィールを表示"
             title="プロフィールを表示"
           >
@@ -516,10 +517,22 @@ export default function HomePage() {
                   <article className="konote-entry" key={entry.id}>
                     <span className="konote-entry-tab" style={{ background: colorForName(entry.author_name) }} />
                     <div className="konote-entry-head">
-                      <span className="konote-avatar" style={{ background: colorForName(entry.author_name) }}>
+                      <button
+                        type="button"
+                        className="konote-avatar konote-tap-avatar"
+                        style={{ background: colorForName(entry.author_name) }}
+                        onClick={() => setProfileTarget(entry.author_name)}
+                        aria-label={`${entry.author_name}さんのプロフィールを見る`}
+                      >
                         {entry.author_name.charAt(0)}
-                      </span>
-                      <span className="konote-entry-author">{entry.author_name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="konote-entry-author konote-tap-name"
+                        onClick={() => setProfileTarget(entry.author_name)}
+                      >
+                        {entry.author_name}
+                      </button>
                       {entry.updated_at !== entry.created_at && (
                         <span className="konote-edited-tag">(編集済み)</span>
                       )}
@@ -568,16 +581,26 @@ export default function HomePage() {
                     <div className="konote-comments">
                       {(entry.comments || []).map((c) => (
                         <div className="konote-comment" key={c.id}>
-                          <span className="konote-comment-avatar" style={{ background: colorForName(c.author_name) }}>
+                          <button
+                            type="button"
+                            className="konote-comment-avatar konote-tap-avatar"
+                            style={{ background: colorForName(c.author_name) }}
+                            onClick={() => setProfileTarget(c.author_name)}
+                            aria-label={`${c.author_name}さんのプロフィールを見る`}
+                          >
                             {c.author_name.charAt(0)}
-                          </span>
+                          </button>
                           <div className="konote-comment-body">
-                            <span className="konote-comment-author">
+                            <button
+                              type="button"
+                              className="konote-comment-author konote-tap-name"
+                              onClick={() => setProfileTarget(c.author_name)}
+                            >
                               {c.author_name}
                               {c.updated_at !== c.created_at && (
                                 <span className="konote-edited-tag-sm">(編集済み)</span>
                               )}
-                            </span>
+                            </button>
                             {editingCommentId === c.id ? (
                               <div className="konote-edit-block konote-edit-block-sm">
                                 <textarea
@@ -683,21 +706,21 @@ export default function HomePage() {
         </div>
       )}
 
-      {showProfile && (
-        <div className="konote-modal-backdrop" onClick={() => setShowProfile(false)}>
+      {profileTarget && (
+        <div className="konote-modal-backdrop" onClick={() => setProfileTarget(null)}>
           <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
             <div className="konote-modal-head">
               <h2>プロフィール</h2>
-              <button className="konote-modal-close" onClick={() => setShowProfile(false)} aria-label="閉じる">
+              <button className="konote-modal-close" onClick={() => setProfileTarget(null)} aria-label="閉じる">
                 ✕
               </button>
             </div>
 
             <div className="konote-profile-head">
-              <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(myName) }}>
-                {myName.charAt(0)}
+              <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(profileTarget) }}>
+                {profileTarget.charAt(0)}
               </span>
-              <span className="konote-profile-name">{myName}</span>
+              <span className="konote-profile-name">{profileTarget}</span>
             </div>
 
             {profileStats.count === 0 ? (
@@ -757,9 +780,11 @@ export default function HomePage() {
               </div>
             )}
 
-            <button className="konote-profile-logout" onClick={handleLogout}>
-              ログアウト
-            </button>
+            {profileTarget === myName && (
+              <button className="konote-profile-logout" onClick={handleLogout}>
+                ログアウト
+              </button>
+            )}
           </div>
         </div>
       )}
