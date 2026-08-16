@@ -390,6 +390,90 @@ body {
   white-space: pre-wrap;
   margin: 0 0 10px;
 }
+.konote-edited-tag {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted-text);
+}
+.konote-edited-tag-sm {
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--muted-text);
+  margin-left: 4px;
+}
+.konote-edit-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  font-size: 19px;
+  line-height: 1;
+}
+.konote-edit-btn:hover {
+  color: var(--kon-peki);
+}
+.konote-edit-btn-sm {
+  font-size: 16px;
+  align-self: flex-start;
+}
+.konote-edit-block {
+  margin: 0 0 10px;
+}
+.konote-edit-block-sm {
+  margin-top: 2px;
+}
+.konote-edit-textarea {
+  width: 100%;
+  border: 1px solid rgba(59, 54, 44, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: var(--ink-text);
+  background: #fff;
+  outline: none;
+  resize: vertical;
+}
+.konote-edit-block-sm .konote-edit-textarea {
+  font-size: 12px;
+  padding: 6px 8px;
+}
+.konote-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.konote-edit-cancel,
+.konote-edit-save {
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.konote-edit-cancel {
+  background: transparent;
+  color: var(--muted-text);
+  border: 1px solid rgba(59, 54, 44, 0.25);
+}
+.konote-edit-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.konote-edit-save {
+  background: var(--kon-peki);
+  color: #fff;
+}
+.konote-edit-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* ---- Comments ---- */
 .konote-comments {
@@ -410,6 +494,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 1;
+  min-width: 0;
 }
 .konote-comment-author {
   font-size: 11px;
