@@ -725,10 +725,18 @@ export default function HomePage() {
                     <span className="konote-profile-stat-unit">文字</span>
                   </span>
                 </div>
+                <div aria-hidden="true" />
                 <div className="konote-profile-stat">
                   <span className="konote-profile-stat-label">連続投稿(現在)</span>
                   <span className="konote-profile-stat-value">
                     {profileStats.currentStreak}
+                    <span className="konote-profile-stat-unit">日</span>
+                  </span>
+                </div>
+                <div className="konote-profile-stat">
+                  <span className="konote-profile-stat-label">連続投稿(自己ベスト)</span>
+                  <span className="konote-profile-stat-value">
+                    {profileStats.bestStreak}
                     <span className="konote-profile-stat-unit">日</span>
                   </span>
                 </div>
@@ -744,13 +752,6 @@ export default function HomePage() {
                   <span className="konote-profile-stat-value">
                     {formatDateStampWithYear(profileStats.lastDate).main}
                     ({formatDateStampWithYear(profileStats.lastDate).weekday})
-                  </span>
-                </div>
-                <div className="konote-profile-stat">
-                  <span className="konote-profile-stat-label">連続投稿(自己ベスト)</span>
-                  <span className="konote-profile-stat-value">
-                    {profileStats.bestStreak}
-                    <span className="konote-profile-stat-unit">日</span>
                   </span>
                 </div>
               </div>
