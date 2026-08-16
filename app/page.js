@@ -67,6 +67,14 @@ export default function HomePage() {
   const [commentDrafts, setCommentDrafts] = useState({});
   const [postingComment, setPostingComment] = useState({});
 
+  const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editEntryDraft, setEditEntryDraft] = useState("");
+  const [savingEntryEdit, setSavingEntryEdit] = useState(false);
+
+  const [editingCommentId, setEditingCommentId] = useState(null);
+  const [editCommentDraft, setEditCommentDraft] = useState("");
+  const [savingCommentEdit, setSavingCommentEdit] = useState(false);
+
   // --- auth bootstrap ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -195,6 +203,62 @@ export default function HomePage() {
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
+    loadEntries();
+  };
+
+  const startEditEntry = (entry) => {
+    setEditingEntryId(entry.id);
+    setEditEntryDraft(entry.content);
+  };
+
+  const cancelEditEntry = () => {
+    setEditingEntryId(null);
+    setEditEntryDraft("");
+  };
+
+  const saveEditEntry = async (entryId) => {
+    const trimmed = editEntryDraft.trim();
+    if (!trimmed) return;
+    setSavingEntryEdit(true);
+    const { error } = await supabase
+      .from("diary_entries")
+      .update({ content: trimmed, updated_at: new Date().toISOString() })
+      .eq("id", entryId);
+    setSavingEntryEdit(false);
+    if (error) {
+      setErrorMsg("日記の更新に失敗しました。");
+      return;
+    }
+    setEditingEntryId(null);
+    setEditEntryDraft("");
+    loadEntries();
+  };
+
+  const startEditComment = (comment) => {
+    setEditingCommentId(comment.id);
+    setEditCommentDraft(comment.content);
+  };
+
+  const cancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditCommentDraft("");
+  };
+
+  const saveEditComment = async (commentId) => {
+    const trimmed = editCommentDraft.trim();
+    if (!trimmed) return;
+    setSavingCommentEdit(true);
+    const { error } = await supabase
+      .from("comments")
+      .update({ content: trimmed, updated_at: new Date().toISOString() })
+      .eq("id", commentId);
+    setSavingCommentEdit(false);
+    if (error) {
+      setErrorMsg("コメントの更新に失敗しました。");
+      return;
+    }
+    setEditingCommentId(null);
+    setEditCommentDraft("");
     loadEntries();
   };
 
@@ -401,9 +465,50 @@ export default function HomePage() {
                         {entry.author_name.charAt(0)}
                       </span>
                       <span className="konote-entry-author">{entry.author_name}</span>
+                      {entry.updated_at !== entry.created_at && (
+                        <span className="konote-edited-tag">(編集済み)</span>
+                      )}
                       <span className="konote-entry-time">{formatTime(entry.created_at)}</span>
+                      {entry.author_id === session.user.id && editingEntryId !== entry.id && (
+                        <button
+                          className="konote-edit-btn"
+                          onClick={() => startEditEntry(entry)}
+                          aria-label="日記を編集"
+                          title="編集"
+                        >
+                          ✎
+                        </button>
+                      )}
                     </div>
-                    <p className="konote-entry-content">{entry.content}</p>
+                    {editingEntryId === entry.id ? (
+                      <div className="konote-edit-block">
+                        <textarea
+                          className="konote-edit-textarea"
+                          value={editEntryDraft}
+                          onChange={(e) => setEditEntryDraft(e.target.value)}
+                          rows={4}
+                          maxLength={2000}
+                        />
+                        <div className="konote-edit-actions">
+                          <button
+                            className="konote-edit-cancel"
+                            onClick={cancelEditEntry}
+                            disabled={savingEntryEdit}
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            className="konote-edit-save"
+                            onClick={() => saveEditEntry(entry.id)}
+                            disabled={!editEntryDraft.trim() || savingEntryEdit}
+                          >
+                            {savingEntryEdit ? "保存中…" : "保存"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="konote-entry-content">{entry.content}</p>
+                    )}
 
                     <div className="konote-comments">
                       {(entry.comments || []).map((c) => (
@@ -412,9 +517,52 @@ export default function HomePage() {
                             {c.author_name.charAt(0)}
                           </span>
                           <div className="konote-comment-body">
-                            <span className="konote-comment-author">{c.author_name}</span>
-                            <span className="konote-comment-text">{c.content}</span>
+                            <span className="konote-comment-author">
+                              {c.author_name}
+                              {c.updated_at !== c.created_at && (
+                                <span className="konote-edited-tag-sm">(編集済み)</span>
+                              )}
+                            </span>
+                            {editingCommentId === c.id ? (
+                              <div className="konote-edit-block konote-edit-block-sm">
+                                <textarea
+                                  className="konote-edit-textarea"
+                                  value={editCommentDraft}
+                                  onChange={(e) => setEditCommentDraft(e.target.value)}
+                                  rows={2}
+                                  maxLength={200}
+                                />
+                                <div className="konote-edit-actions">
+                                  <button
+                                    className="konote-edit-cancel"
+                                    onClick={cancelEditComment}
+                                    disabled={savingCommentEdit}
+                                  >
+                                    キャンセル
+                                  </button>
+                                  <button
+                                    className="konote-edit-save"
+                                    onClick={() => saveEditComment(c.id)}
+                                    disabled={!editCommentDraft.trim() || savingCommentEdit}
+                                  >
+                                    {savingCommentEdit ? "保存中…" : "保存"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="konote-comment-text">{c.content}</span>
+                            )}
                           </div>
+                          {c.author_id === session.user.id && editingCommentId !== c.id && (
+                            <button
+                              className="konote-edit-btn konote-edit-btn-sm"
+                              onClick={() => startEditComment(c)}
+                              aria-label="コメントを編集"
+                              title="編集"
+                            >
+                              ✎
+                            </button>
+                          )}
                         </div>
                       ))}
                       <div className="konote-comment-form">
