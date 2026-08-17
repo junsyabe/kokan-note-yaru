@@ -35,11 +35,35 @@ function stampRotation(dateStr) {
   return h - 3;
 }
 
-function formatTime(iso) {
+function formatTime(entryDate, createdAtIso) {
+  const created = new Date(createdAtIso);
+  const mm = String(created.getMinutes()).padStart(2, "0");
+
+  const createdDateStr = dateStrFromDate(created);
+  if (createdDateStr === entryDate) {
+    return `${String(created.getHours()).padStart(2, "0")}:${mm}`;
+  }
+
+  const entryMidnight = new Date(entryDate + "T00:00:00");
+  const createdMidnight = new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  const diffDays = Math.round((createdMidnight - entryMidnight) / 86400000);
+
+  // Only true "wrote it after midnight" carries over; an entry backdated
+  // ahead of when it was actually posted just shows its own clock time.
+  if (diffDays <= 0) {
+    return `${String(created.getHours()).padStart(2, "0")}:${mm}`;
+  }
+
+  const carriedHour = diffDays * 24 + created.getHours();
+  return `${formatDateStamp(entryDate).main} ${String(carriedHour).padStart(2, "0")}:${mm}`;
+}
+
+function formatCommentTime(iso, includeDate) {
   const d = new Date(iso);
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+  if (!includeDate) return `${hh}:${mm}`;
+  return `${formatDateStamp(dateStrFromDate(d)).main} ${hh}:${mm}`;
 }
 
 function dateStrFromDate(d) {
@@ -533,10 +557,18 @@ export default function HomePage() {
                       >
                         {entry.author_name}
                       </button>
-                      {entry.updated_at !== entry.created_at && (
-                        <span className="konote-edited-tag">(編集済み)</span>
+                      {entry.updated_at !== entry.created_at ? (
+                        <div className="konote-entry-time-block">
+                          <span className="konote-entry-time">
+                            {formatTime(entry.entry_date, entry.created_at)}
+                          </span>
+                          <span className="konote-entry-time konote-time-edited">
+                            編集 {formatTime(entry.entry_date, entry.updated_at)}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="konote-entry-time">{formatTime(entry.entry_date, entry.created_at)}</span>
                       )}
-                      <span className="konote-entry-time">{formatTime(entry.created_at)}</span>
                       {entry.author_id === session.user.id && editingEntryId !== entry.id && (
                         <button
                           className="konote-edit-btn"
@@ -591,16 +623,36 @@ export default function HomePage() {
                             {c.author_name.charAt(0)}
                           </button>
                           <div className="konote-comment-body">
-                            <button
-                              type="button"
-                              className="konote-comment-author konote-tap-name"
-                              onClick={() => setProfileTarget(c.author_name)}
-                            >
-                              {c.author_name}
-                              {c.updated_at !== c.created_at && (
-                                <span className="konote-edited-tag-sm">(編集済み)</span>
+                            <div className="konote-comment-meta-row">
+                              <button
+                                type="button"
+                                className="konote-comment-author konote-tap-name"
+                                onClick={() => setProfileTarget(c.author_name)}
+                              >
+                                {c.author_name}
+                              </button>
+                              {c.updated_at !== c.created_at ? (
+                                (() => {
+                                  const spansDates =
+                                    dateStrFromDate(new Date(c.created_at)) !==
+                                    dateStrFromDate(new Date(c.updated_at));
+                                  return (
+                                    <div className="konote-comment-time-block">
+                                      <span className="konote-comment-time">
+                                        {formatCommentTime(c.created_at, spansDates)}
+                                      </span>
+                                      <span className="konote-comment-time konote-time-edited">
+                                        編集 {formatCommentTime(c.updated_at, spansDates)}
+                                      </span>
+                                    </div>
+                                  );
+                                })()
+                              ) : (
+                                <span className="konote-comment-time">
+                                  {formatCommentTime(c.created_at, false)}
+                                </span>
                               )}
-                            </button>
+                            </div>
                             {editingCommentId === c.id ? (
                               <div className="konote-edit-block konote-edit-block-sm">
                                 <textarea
