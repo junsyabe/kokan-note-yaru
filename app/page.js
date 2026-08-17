@@ -218,7 +218,10 @@ export default function HomePage() {
       .from("community_members")
       .select("community_id, communities(id, name, invite_code, created_by, created_at)")
       .eq("user_id", session.user.id);
-    if (!error) {
+    if (error) {
+      setErrorMsg("コミュニティ一覧の読み込みに失敗しました。");
+    } else {
+      setErrorMsg(null);
       const list = (data || [])
         .map((row) => row.communities)
         .filter(Boolean)
@@ -709,6 +712,7 @@ export default function HomePage() {
           <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
           <h1 className="konote-title">こうかんノート</h1>
           <p className="konote-subtitle">コミュニティに参加または作成してください。</p>
+          {errorMsg && <p className="konote-error">{errorMsg}</p>}
           <div className="konote-auth-card">
             <CommunityJoinCreateForm
               joinCode={joinCodeInput}
