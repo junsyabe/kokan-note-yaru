@@ -35,11 +35,27 @@ function stampRotation(dateStr) {
   return h - 3;
 }
 
-function formatTime(iso) {
-  const d = new Date(iso);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
+function formatTime(entryDate, createdAtIso) {
+  const created = new Date(createdAtIso);
+  const mm = String(created.getMinutes()).padStart(2, "0");
+
+  const createdDateStr = dateStrFromDate(created);
+  if (createdDateStr === entryDate) {
+    return `${String(created.getHours()).padStart(2, "0")}:${mm}`;
+  }
+
+  const entryMidnight = new Date(entryDate + "T00:00:00");
+  const createdMidnight = new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  const diffDays = Math.round((createdMidnight - entryMidnight) / 86400000);
+
+  // Only true "wrote it after midnight" carries over; an entry backdated
+  // ahead of when it was actually posted just shows its own clock time.
+  if (diffDays <= 0) {
+    return `${String(created.getHours()).padStart(2, "0")}:${mm}`;
+  }
+
+  const carriedHour = diffDays * 24 + created.getHours();
+  return `${formatDateStamp(entryDate).main} ${String(carriedHour).padStart(2, "0")}:${mm}`;
 }
 
 function dateStrFromDate(d) {
@@ -536,7 +552,7 @@ export default function HomePage() {
                       {entry.updated_at !== entry.created_at && (
                         <span className="konote-edited-tag">(編集済み)</span>
                       )}
-                      <span className="konote-entry-time">{formatTime(entry.created_at)}</span>
+                      <span className="konote-entry-time">{formatTime(entry.entry_date, entry.created_at)}</span>
                       {entry.author_id === session.user.id && editingEntryId !== entry.id && (
                         <button
                           className="konote-edit-btn"
