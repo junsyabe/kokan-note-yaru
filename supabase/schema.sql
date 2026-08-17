@@ -87,6 +87,24 @@ as $$
   );
 $$;
 
+-- Same reasoning, for entry_communities' INSERT policy: checking entry
+-- ownership via a plain EXISTS against diary_entries would trigger
+-- diary_entries' own SELECT policy, which itself queries entry_communities
+-- (to check community linkage) — a cross-table cycle that Postgres also
+-- reports as infinite recursion, just spanning two tables instead of one.
+create or replace function is_entry_author(target_entry_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from diary_entries
+    where id = target_entry_id and author_id = auth.uid()
+  );
+$$;
+
 -- Policies are dropped and recreated so this script can be run more than
 -- once without erroring if you already ran it partially before.
 drop policy if exists "read all entries" on diary_entries;
@@ -141,10 +159,7 @@ create policy "read own entry_communities" on entry_communities
 drop policy if exists "insert entry_communities for own entries" on entry_communities;
 create policy "insert entry_communities for own entries" on entry_communities
   for insert with check (
-    exists (
-      select 1 from diary_entries e
-      where e.id = entry_communities.entry_id and e.author_id = auth.uid()
-    )
+    is_entry_author(entry_communities.entry_id)
     and is_community_member(entry_communities.community_id)
   );
 

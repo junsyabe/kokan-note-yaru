@@ -418,24 +418,27 @@ export default function HomePage() {
     const trimmed = newContent.trim();
     if (!trimmed || !session || postCommunityIds.length === 0) return;
     setPosting(true);
-    const { data: inserted, error } = await supabase
-      .from("diary_entries")
-      .insert({
-        author_id: session.user.id,
-        author_name: myName,
-        entry_date: newDate,
-        content: trimmed,
-      })
-      .select()
-      .single();
-    if (error || !inserted) {
+    // No .select() here: the new row isn't linked into entry_communities
+    // yet, so it wouldn't pass diary_entries' community-scoped SELECT
+    // policy, and RETURNING a row that fails the SELECT policy raises "new
+    // row violates row-level security policy". Generating the id
+    // client-side avoids needing it back from the insert at all.
+    const newEntryId = crypto.randomUUID();
+    const { error } = await supabase.from("diary_entries").insert({
+      id: newEntryId,
+      author_id: session.user.id,
+      author_name: myName,
+      entry_date: newDate,
+      content: trimmed,
+    });
+    if (error) {
       setPosting(false);
       setErrorMsg(withDetail("投稿に失敗しました。", error));
       return;
     }
     const { error: linkError } = await supabase
       .from("entry_communities")
-      .insert(postCommunityIds.map((communityId) => ({ entry_id: inserted.id, community_id: communityId })));
+      .insert(postCommunityIds.map((communityId) => ({ entry_id: newEntryId, community_id: communityId })));
     setPosting(false);
     if (linkError) {
       setErrorMsg(withDetail("コミュニティへの投稿の紐付けに失敗しました。", linkError));
