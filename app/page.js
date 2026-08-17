@@ -77,6 +77,10 @@ function todayStr() {
   return dateStrFromDate(new Date());
 }
 
+function withDetail(message, err) {
+  return err?.message ? `${message}（${err.message}）` : message;
+}
+
 function CommunityJoinCreateForm({
   joinCode,
   onJoinCodeChange,
@@ -219,7 +223,7 @@ export default function HomePage() {
       .select("community_id, communities(id, name, invite_code, created_by, created_at)")
       .eq("user_id", session.user.id);
     if (error) {
-      setErrorMsg("コミュニティ一覧の読み込みに失敗しました。");
+      setErrorMsg(withDetail("コミュニティ一覧の読み込みに失敗しました。", error));
     } else {
       setErrorMsg(null);
       const list = (data || [])
@@ -251,7 +255,7 @@ export default function HomePage() {
       await loadMyCommunities();
       if (data) setCurrentCommunityId(data);
     } catch (err) {
-      setJoinError("招待コードが見つかりませんでした。");
+      setJoinError(withDetail("招待コードが見つかりませんでした。", err));
     } finally {
       setJoining(false);
     }
@@ -273,7 +277,7 @@ export default function HomePage() {
       await loadMyCommunities();
       setCurrentCommunityId(created.id);
     } catch (err) {
-      setCreateError("コミュニティの作成に失敗しました。");
+      setCreateError(withDetail("コミュニティの作成に失敗しました。", err));
     } finally {
       setCreating(false);
     }
@@ -313,7 +317,7 @@ export default function HomePage() {
       .eq("entry_communities.community_id", communityId)
       .order("created_at", { ascending: true });
     if (entryErr) {
-      setErrorMsg("日記の読み込みに失敗しました。");
+      setErrorMsg(withDetail("日記の読み込みに失敗しました。", entryErr));
       setEntriesLoading(false);
       return;
     }
@@ -323,7 +327,7 @@ export default function HomePage() {
       .eq("community_id", communityId)
       .order("created_at", { ascending: true });
     if (commentErr) {
-      setErrorMsg("コメントの読み込みに失敗しました。");
+      setErrorMsg(withDetail("コメントの読み込みに失敗しました。", commentErr));
     } else {
       setErrorMsg(null);
     }
@@ -426,7 +430,7 @@ export default function HomePage() {
       .single();
     if (error || !inserted) {
       setPosting(false);
-      setErrorMsg("投稿に失敗しました。");
+      setErrorMsg(withDetail("投稿に失敗しました。", error));
       return;
     }
     const { error: linkError } = await supabase
@@ -434,7 +438,7 @@ export default function HomePage() {
       .insert(postCommunityIds.map((communityId) => ({ entry_id: inserted.id, community_id: communityId })));
     setPosting(false);
     if (linkError) {
-      setErrorMsg("コミュニティへの投稿の紐付けに失敗しました。");
+      setErrorMsg(withDetail("コミュニティへの投稿の紐付けに失敗しました。", linkError));
       return;
     }
     setNewContent("");
@@ -456,7 +460,7 @@ export default function HomePage() {
     });
     setPostingComment((p) => ({ ...p, [entryId]: false }));
     if (error) {
-      setErrorMsg("コメントの投稿に失敗しました。");
+      setErrorMsg(withDetail("コメントの投稿に失敗しました。", error));
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
@@ -483,7 +487,7 @@ export default function HomePage() {
       .eq("id", entryId);
     setSavingEntryEdit(false);
     if (error) {
-      setErrorMsg("日記の更新に失敗しました。");
+      setErrorMsg(withDetail("日記の更新に失敗しました。", error));
       return;
     }
     setEditingEntryId(null);
@@ -511,7 +515,7 @@ export default function HomePage() {
       .eq("id", commentId);
     setSavingCommentEdit(false);
     if (error) {
-      setErrorMsg("コメントの更新に失敗しました。");
+      setErrorMsg(withDetail("コメントの更新に失敗しました。", error));
       return;
     }
     setEditingCommentId(null);
