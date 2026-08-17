@@ -77,6 +77,9 @@ body {
   clip-path: polygon(0 0, 100% 0, 100% 85%, 50% 100%, 0 85%);
   pointer-events: none;
 }
+.konote-header .konote-ribbon {
+  right: 4px;
+}
 .konote-eyebrow {
   font-family: "JetBrains Mono", monospace;
   font-size: 10px;
@@ -149,6 +152,11 @@ body {
   outline: none;
   resize: vertical;
 }
+.konote-date-input {
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
 .konote-join-btn,
 .konote-submit-btn {
   width: 100%;
@@ -186,9 +194,10 @@ body {
 }
 .konote-header-top {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: 8px 12px;
 }
 .konote-title-sm {
   font-family: var(--font-sans);
@@ -244,6 +253,8 @@ body {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-right: 24px;
+  max-width: 100%;
 }
 .konote-community-select {
   background: rgba(246, 240, 225, 0.12);
@@ -253,8 +264,16 @@ body {
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 700;
-  max-width: 140px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
+}
+@media (max-width: 380px) {
+  .konote-community-select {
+    max-width: 84px;
+  }
 }
 .konote-community-add-btn {
   border: 1px solid rgba(246, 240, 225, 0.25);
