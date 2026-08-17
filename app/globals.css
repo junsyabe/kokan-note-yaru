@@ -238,6 +238,105 @@ body {
   color: rgba(246, 240, 225, 0.75);
 }
 
+/* ---- Community switcher (header) ---- */
+.konote-community-switcher {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.konote-community-select {
+  background: rgba(246, 240, 225, 0.12);
+  color: var(--cream);
+  border: 1px solid rgba(246, 240, 225, 0.25);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  max-width: 140px;
+  cursor: pointer;
+}
+.konote-community-add-btn {
+  border: 1px solid rgba(246, 240, 225, 0.25);
+  background: transparent;
+  color: var(--cream);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* ---- Community join/create form ---- */
+.konote-community-form {
+  display: flex;
+  flex-direction: column;
+}
+.konote-community-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.konote-community-row .konote-auth-input {
+  flex: 1;
+}
+.konote-community-btn {
+  flex-shrink: 0;
+  border: none;
+  background: var(--kon-peki);
+  color: var(--cream);
+  font-weight: 700;
+  font-size: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.konote-community-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.konote-community-divider {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted-text);
+  margin: 16px 0;
+}
+.konote-community-created {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(59, 54, 44, 0.2);
+}
+.konote-community-created-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-text);
+  margin-bottom: 8px;
+}
+.konote-community-created .konote-field-label {
+  margin-top: 12px;
+}
+
+/* ---- New-post community checkboxes ---- */
+.konote-community-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 0;
+}
+.konote-community-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-text);
+  cursor: pointer;
+}
+
 /* ---- Page / content ---- */
 .konote-page {
   width: 100%;
