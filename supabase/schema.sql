@@ -64,6 +64,29 @@ alter table communities enable row level security;
 alter table community_members enable row level security;
 alter table entry_communities enable row level security;
 
+-- security definer so the membership check bypasses RLS internally.
+-- community_members' own SELECT policy needs this: a plain EXISTS subquery
+-- against community_members from within community_members' own policy
+-- causes Postgres to re-evaluate that same policy for the subquery's rows,
+-- and so on forever ("infinite recursion detected in policy for relation
+-- community_members"). Routing the check through this function breaks the
+-- loop, since the function's internal query isn't subject to RLS. Every
+-- policy below that needs a "is auth.uid() a member of this community"
+-- check uses this function instead of an inline EXISTS against
+-- community_members, for the same reason.
+create or replace function is_community_member(target_community_id uuid)
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from community_members
+    where community_id = target_community_id and user_id = auth.uid()
+  );
+$$;
+
 -- Policies are dropped and recreated so this script can be run more than
 -- once without erroring if you already ran it partially before.
 drop policy if exists "read all entries" on diary_entries;
@@ -71,10 +94,8 @@ drop policy if exists "read own community entries" on diary_entries;
 create policy "read own community entries" on diary_entries
   for select using (
     exists (
-      select 1
-      from entry_communities ec
-      join community_members m on m.community_id = ec.community_id
-      where ec.entry_id = diary_entries.id and m.user_id = auth.uid()
+      select 1 from entry_communities ec
+      where ec.entry_id = diary_entries.id and is_community_member(ec.community_id)
     )
   );
 
@@ -89,12 +110,7 @@ create policy "update own entries" on diary_entries
 drop policy if exists "read all comments" on comments;
 drop policy if exists "read own community comments" on comments;
 create policy "read own community comments" on comments
-  for select using (
-    exists (
-      select 1 from community_members m
-      where m.community_id = comments.community_id and m.user_id = auth.uid()
-    )
-  );
+  for select using ( is_community_member(comments.community_id) );
 
 drop policy if exists "insert own comments" on comments;
 create policy "insert own comments" on comments
@@ -112,30 +128,15 @@ create policy "update own comments" on comments
 
 drop policy if exists "read own communities" on communities;
 create policy "read own communities" on communities
-  for select using (
-    exists (
-      select 1 from community_members m
-      where m.community_id = communities.id and m.user_id = auth.uid()
-    )
-  );
+  for select using ( is_community_member(communities.id) );
 
 drop policy if exists "read own memberships" on community_members;
 create policy "read own memberships" on community_members
-  for select using (
-    exists (
-      select 1 from community_members m2
-      where m2.community_id = community_members.community_id and m2.user_id = auth.uid()
-    )
-  );
+  for select using ( is_community_member(community_id) );
 
 drop policy if exists "read own entry_communities" on entry_communities;
 create policy "read own entry_communities" on entry_communities
-  for select using (
-    exists (
-      select 1 from community_members m
-      where m.community_id = entry_communities.community_id and m.user_id = auth.uid()
-    )
-  );
+  for select using ( is_community_member(entry_communities.community_id) );
 
 drop policy if exists "insert entry_communities for own entries" on entry_communities;
 create policy "insert entry_communities for own entries" on entry_communities
@@ -144,10 +145,7 @@ create policy "insert entry_communities for own entries" on entry_communities
       select 1 from diary_entries e
       where e.id = entry_communities.entry_id and e.author_id = auth.uid()
     )
-    and exists (
-      select 1 from community_members m
-      where m.community_id = entry_communities.community_id and m.user_id = auth.uid()
-    )
+    and is_community_member(entry_communities.community_id)
   );
 
 -- Joins the caller into the community identified by an invite code.
