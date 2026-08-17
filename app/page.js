@@ -77,6 +77,84 @@ function todayStr() {
   return dateStrFromDate(new Date());
 }
 
+function withDetail(message, err) {
+  return err?.message ? `${message}（${err.message}）` : message;
+}
+
+function CommunityJoinCreateForm({
+  joinCode,
+  onJoinCodeChange,
+  onJoin,
+  joining,
+  joinError,
+  createName,
+  onCreateNameChange,
+  onCreate,
+  creating,
+  createError,
+  createdInfo,
+  onCopy,
+}) {
+  return (
+    <div className="konote-community-form">
+      <div className="konote-community-section">
+        <label className="konote-field-label">招待コードで参加</label>
+        <div className="konote-community-row">
+          <input
+            className="konote-auth-input"
+            value={joinCode}
+            onChange={(e) => onJoinCodeChange(e.target.value)}
+            placeholder="招待コードを入力"
+          />
+          <button className="konote-community-btn" onClick={onJoin} disabled={joining || !joinCode.trim()}>
+            {joining ? "参加中…" : "参加"}
+          </button>
+        </div>
+        {joinError && <p className="konote-error">{joinError}</p>}
+      </div>
+
+      <div className="konote-community-divider">または</div>
+
+      <div className="konote-community-section">
+        <label className="konote-field-label">新しいコミュニティを作る</label>
+        <div className="konote-community-row">
+          <input
+            className="konote-auth-input"
+            value={createName}
+            onChange={(e) => onCreateNameChange(e.target.value)}
+            placeholder="コミュニティ名"
+            maxLength={30}
+          />
+          <button className="konote-community-btn" onClick={onCreate} disabled={creating || !createName.trim()}>
+            {creating ? "作成中…" : "作成"}
+          </button>
+        </div>
+        {createError && <p className="konote-error">{createError}</p>}
+      </div>
+
+      {createdInfo && (
+        <div className="konote-community-created">
+          <p className="konote-community-created-label">「{createdInfo.name}」を作成しました</p>
+          <label className="konote-field-label">招待コード</label>
+          <div className="konote-community-row">
+            <input className="konote-auth-input" value={createdInfo.invite_code} readOnly />
+            <button type="button" className="konote-community-btn" onClick={() => onCopy(createdInfo.invite_code)}>
+              コピー
+            </button>
+          </div>
+          <label className="konote-field-label">招待リンク</label>
+          <div className="konote-community-row">
+            <input className="konote-auth-input" value={createdInfo.link} readOnly />
+            <button type="button" className="konote-community-btn" onClick={() => onCopy(createdInfo.link)}>
+              コピー
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = signed out
   const [mode, setMode] = useState("login"); // 'login' | 'signup'
@@ -111,6 +189,22 @@ export default function HomePage() {
 
   const [profileTarget, setProfileTarget] = useState(null);
 
+  const [myCommunities, setMyCommunities] = useState([]);
+  const [communitiesLoading, setCommunitiesLoading] = useState(true);
+  const [currentCommunityId, setCurrentCommunityId] = useState(null);
+  const [memberIds, setMemberIds] = useState([]);
+
+  const [showCommunityModal, setShowCommunityModal] = useState(false);
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState(null);
+  const [createNameInput, setCreateNameInput] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState(null);
+  const [createdInfo, setCreatedInfo] = useState(null);
+
+  const [postCommunityIds, setPostCommunityIds] = useState([]);
+
   // --- auth bootstrap ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -122,23 +216,118 @@ export default function HomePage() {
 
   const myName = session?.user?.user_metadata?.display_name || session?.user?.email || "";
 
+  // --- communities ---
+  const loadMyCommunities = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("community_members")
+      .select("community_id, communities(id, name, invite_code, created_by, created_at)")
+      .eq("user_id", session.user.id);
+    if (error) {
+      setErrorMsg(withDetail("コミュニティ一覧の読み込みに失敗しました。", error));
+    } else {
+      setErrorMsg(null);
+      const list = (data || [])
+        .map((row) => row.communities)
+        .filter(Boolean)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      setMyCommunities(list);
+      setCurrentCommunityId((prev) => (prev && list.some((c) => c.id === prev) ? prev : list[0]?.id || null));
+    }
+    setCommunitiesLoading(false);
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) return;
+    setCommunitiesLoading(true);
+    loadMyCommunities();
+  }, [session, loadMyCommunities]);
+
+  const handleJoinByCode = async (codeOverride) => {
+    const code = (codeOverride ?? joinCodeInput).trim();
+    if (!code) return;
+    setJoining(true);
+    setJoinError(null);
+    try {
+      const { data, error } = await supabase.rpc("join_community_by_code", { code });
+      if (error) throw error;
+      setJoinCodeInput("");
+      setShowCommunityModal(false);
+      await loadMyCommunities();
+      if (data) setCurrentCommunityId(data);
+    } catch (err) {
+      setJoinError(withDetail("招待コードが見つかりませんでした。", err));
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const handleCreateCommunity = async () => {
+    const name = createNameInput.trim();
+    if (!name) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const { data, error } = await supabase.rpc("create_community", { community_name: name });
+      if (error) throw error;
+      const created = data && data[0];
+      if (!created) throw new Error("empty response");
+      const link = `${window.location.origin}${window.location.pathname}?invite=${created.invite_code}`;
+      setCreatedInfo({ name, invite_code: created.invite_code, link });
+      setCreateNameInput("");
+      await loadMyCommunities();
+      setCurrentCommunityId(created.id);
+    } catch (err) {
+      setCreateError(withDetail("コミュニティの作成に失敗しました。", err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleCopyText = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (err) {
+      // clipboard access can be blocked (permissions/non-secure context); nothing to do
+    }
+  };
+
+  // Auto-join via a shared ?invite=CODE link, once communities have loaded.
+  useEffect(() => {
+    if (!session || communitiesLoading) return;
+    const code = new URLSearchParams(window.location.search).get("invite");
+    if (!code) return;
+    handleJoinByCode(code).then(() => {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("invite");
+      window.history.replaceState({}, "", url.toString());
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, communitiesLoading]);
+
   // --- data loading + realtime ---
-  const loadEntries = useCallback(async () => {
+  const loadEntries = useCallback(async (communityId) => {
+    if (!communityId) {
+      setEntries([]);
+      setEntriesLoading(false);
+      return;
+    }
     const { data: entryRows, error: entryErr } = await supabase
       .from("diary_entries")
-      .select("*")
+      .select("*, entry_communities!inner(community_id)")
+      .eq("entry_communities.community_id", communityId)
       .order("created_at", { ascending: true });
     if (entryErr) {
-      setErrorMsg("日記の読み込みに失敗しました。");
+      setErrorMsg(withDetail("日記の読み込みに失敗しました。", entryErr));
       setEntriesLoading(false);
       return;
     }
     const { data: commentRows, error: commentErr } = await supabase
       .from("comments")
       .select("*")
+      .eq("community_id", communityId)
       .order("created_at", { ascending: true });
     if (commentErr) {
-      setErrorMsg("コメントの読み込みに失敗しました。");
+      setErrorMsg(withDetail("コメントの読み込みに失敗しました。", commentErr));
     } else {
       setErrorMsg(null);
     }
@@ -152,16 +341,39 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !currentCommunityId) return;
     setEntriesLoading(true);
-    loadEntries();
+    loadEntries(currentCommunityId);
     const channel = supabase
-      .channel("diary-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "diary_entries" }, loadEntries)
-      .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, loadEntries)
+      .channel(`diary-changes-${currentCommunityId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "diary_entries" }, () =>
+        loadEntries(currentCommunityId)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, () =>
+        loadEntries(currentCommunityId)
+      )
+      .on("postgres_changes", { event: "*", schema: "public", table: "entry_communities" }, () =>
+        loadEntries(currentCommunityId)
+      )
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [session, loadEntries]);
+  }, [session, currentCommunityId, loadEntries]);
+
+  // Membership list for the current community, used to build the friend
+  // filter chips (independent of who has actually posted).
+  useEffect(() => {
+    if (!currentCommunityId) {
+      setMemberIds([]);
+      return;
+    }
+    supabase
+      .from("community_members")
+      .select("user_id")
+      .eq("community_id", currentCommunityId)
+      .then(({ data, error }) => {
+        if (!error) setMemberIds((data || []).map((m) => m.user_id));
+      });
+  }, [currentCommunityId]);
 
   // --- auth actions ---
   const handleSignup = async () => {
@@ -204,42 +416,55 @@ export default function HomePage() {
   // --- entry / comment actions ---
   const handlePost = async () => {
     const trimmed = newContent.trim();
-    if (!trimmed || !session) return;
+    if (!trimmed || !session || postCommunityIds.length === 0) return;
     setPosting(true);
-    const { error } = await supabase.from("diary_entries").insert({
-      author_id: session.user.id,
-      author_name: myName,
-      entry_date: newDate,
-      content: trimmed,
-    });
+    const { data: inserted, error } = await supabase
+      .from("diary_entries")
+      .insert({
+        author_id: session.user.id,
+        author_name: myName,
+        entry_date: newDate,
+        content: trimmed,
+      })
+      .select()
+      .single();
+    if (error || !inserted) {
+      setPosting(false);
+      setErrorMsg(withDetail("投稿に失敗しました。", error));
+      return;
+    }
+    const { error: linkError } = await supabase
+      .from("entry_communities")
+      .insert(postCommunityIds.map((communityId) => ({ entry_id: inserted.id, community_id: communityId })));
     setPosting(false);
-    if (error) {
-      setErrorMsg("投稿に失敗しました。");
+    if (linkError) {
+      setErrorMsg(withDetail("コミュニティへの投稿の紐付けに失敗しました。", linkError));
       return;
     }
     setNewContent("");
     setNewDate(todayStr());
     setShowForm(false);
-    loadEntries();
+    loadEntries(currentCommunityId);
   };
 
   const handleAddComment = async (entryId) => {
     const draft = (commentDrafts[entryId] || "").trim();
-    if (!draft || !session) return;
+    if (!draft || !session || !currentCommunityId) return;
     setPostingComment((p) => ({ ...p, [entryId]: true }));
     const { error } = await supabase.from("comments").insert({
       entry_id: entryId,
       author_id: session.user.id,
       author_name: myName,
       content: draft,
+      community_id: currentCommunityId,
     });
     setPostingComment((p) => ({ ...p, [entryId]: false }));
     if (error) {
-      setErrorMsg("コメントの投稿に失敗しました。");
+      setErrorMsg(withDetail("コメントの投稿に失敗しました。", error));
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
-    loadEntries();
+    loadEntries(currentCommunityId);
   };
 
   const startEditEntry = (entry) => {
@@ -262,12 +487,12 @@ export default function HomePage() {
       .eq("id", entryId);
     setSavingEntryEdit(false);
     if (error) {
-      setErrorMsg("日記の更新に失敗しました。");
+      setErrorMsg(withDetail("日記の更新に失敗しました。", error));
       return;
     }
     setEditingEntryId(null);
     setEditEntryDraft("");
-    loadEntries();
+    loadEntries(currentCommunityId);
   };
 
   const startEditComment = (comment) => {
@@ -290,12 +515,12 @@ export default function HomePage() {
       .eq("id", commentId);
     setSavingCommentEdit(false);
     if (error) {
-      setErrorMsg("コメントの更新に失敗しました。");
+      setErrorMsg(withDetail("コメントの更新に失敗しました。", error));
       return;
     }
     setEditingCommentId(null);
     setEditCommentDraft("");
-    loadEntries();
+    loadEntries(currentCommunityId);
   };
 
   // --- profile stats (derived from already-loaded entries, no extra queries) ---
@@ -341,12 +566,27 @@ export default function HomePage() {
   }, [entries, profileTarget]);
 
   // --- grouping ---
-  const uniqueAuthors = useMemo(
+  // Names of the current community's members (from community_members, not
+  // just whoever has posted), resolved via author_id -> author_name seen in
+  // already-loaded entries/comments (no profiles table to join against).
+  const authorIdToName = useMemo(() => {
+    const map = {};
+    entries.forEach((e) => {
+      map[e.author_id] = e.author_name;
+      (e.comments || []).forEach((c) => {
+        map[c.author_id] = c.author_name;
+      });
+    });
+    if (session?.user?.id) map[session.user.id] = myName;
+    return map;
+  }, [entries, session, myName]);
+
+  const communityMemberNames = useMemo(
     () =>
-      Array.from(new Set(entries.map((e) => e.author_name))).sort((a, b) =>
+      Array.from(new Set(memberIds.map((uid) => authorIdToName[uid]).filter(Boolean))).sort((a, b) =>
         a.localeCompare(b, "ja")
       ),
-    [entries]
+    [memberIds, authorIdToName]
   );
   const filteredEntries = selectedAuthor
     ? entries.filter((e) => e.author_name === selectedAuthor)
@@ -458,6 +698,46 @@ export default function HomePage() {
     );
   }
 
+  // --- render: signed in, checking community membership ---
+  if (communitiesLoading) {
+    return (
+      <div className="konote-app konote-loading-screen">
+        <p className="konote-loading-text">読み込み中…</p>
+      </div>
+    );
+  }
+
+  // --- render: signed in, no community joined yet ---
+  if (myCommunities.length === 0) {
+    return (
+      <div className="konote-app konote-onboarding">
+        <div className="konote-cover">
+          <div className="konote-ribbon" />
+          <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
+          <h1 className="konote-title">こうかんノート</h1>
+          <p className="konote-subtitle">コミュニティに参加または作成してください。</p>
+          {errorMsg && <p className="konote-error">{errorMsg}</p>}
+          <div className="konote-auth-card">
+            <CommunityJoinCreateForm
+              joinCode={joinCodeInput}
+              onJoinCodeChange={setJoinCodeInput}
+              onJoin={() => handleJoinByCode()}
+              joining={joining}
+              joinError={joinError}
+              createName={createNameInput}
+              onCreateNameChange={setCreateNameInput}
+              onCreate={handleCreateCommunity}
+              creating={creating}
+              createError={createError}
+              createdInfo={createdInfo}
+              onCopy={handleCopyText}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- render: signed in (diary feed) ---
   return (
     <div className="konote-app">
@@ -467,6 +747,36 @@ export default function HomePage() {
           <div>
             <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
             <h1 className="konote-title-sm">こうかんノート</h1>
+          </div>
+          <div className="konote-community-switcher">
+            <select
+              className="konote-community-select"
+              value={currentCommunityId || ""}
+              onChange={(e) => {
+                setCurrentCommunityId(e.target.value);
+                setSelectedAuthor(null);
+              }}
+              aria-label="コミュニティを切り替える"
+            >
+              {myCommunities.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="konote-community-add-btn"
+              onClick={() => {
+                setJoinError(null);
+                setCreateError(null);
+                setShowCommunityModal(true);
+              }}
+              aria-label="コミュニティに参加または作成"
+              title="コミュニティに参加または作成"
+            >
+              +
+            </button>
           </div>
         </div>
         <div className="konote-me-row">
@@ -487,7 +797,7 @@ export default function HomePage() {
       <main className="konote-page">
         {errorMsg && <div className="konote-error-banner">{errorMsg}</div>}
 
-        {!entriesLoading && uniqueAuthors.length > 0 && (
+        {!entriesLoading && communityMemberNames.length > 0 && (
           <div className="konote-filter-row">
             <button
               className={`konote-filter-chip ${!selectedAuthor ? "is-active" : ""}`}
@@ -495,7 +805,7 @@ export default function HomePage() {
             >
               すべて
             </button>
-            {uniqueAuthors.map((author) => (
+            {communityMemberNames.map((author) => (
               <button
                 key={author}
                 className={`konote-filter-chip ${selectedAuthor === author ? "is-active" : ""}`}
@@ -722,7 +1032,14 @@ export default function HomePage() {
         )}
       </main>
 
-      <button className="konote-fab" onClick={() => setShowForm(true)} aria-label="日記を書く">
+      <button
+        className="konote-fab"
+        onClick={() => {
+          setShowForm(true);
+          setPostCommunityIds(currentCommunityId ? [currentCommunityId] : []);
+        }}
+        aria-label="日記を書く"
+      >
         ＋
       </button>
 
@@ -751,7 +1068,28 @@ export default function HomePage() {
               rows={5}
               maxLength={2000}
             />
-            <button className="konote-submit-btn" onClick={handlePost} disabled={!newContent.trim() || posting}>
+            <label className="konote-field-label">投稿先コミュニティ</label>
+            <div className="konote-community-checkbox-list">
+              {myCommunities.map((c) => (
+                <label key={c.id} className="konote-community-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={postCommunityIds.includes(c.id)}
+                    onChange={(e) => {
+                      setPostCommunityIds((prev) =>
+                        e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)
+                      );
+                    }}
+                  />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+            <button
+              className="konote-submit-btn"
+              onClick={handlePost}
+              disabled={!newContent.trim() || posting || postCommunityIds.length === 0}
+            >
               {posting ? "投稿中…" : "ノートに書く"}
             </button>
           </div>
@@ -837,6 +1175,37 @@ export default function HomePage() {
                 ログアウト
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {showCommunityModal && (
+        <div className="konote-modal-backdrop" onClick={() => setShowCommunityModal(false)}>
+          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="konote-modal-head">
+              <h2>コミュニティに参加/作成</h2>
+              <button
+                className="konote-modal-close"
+                onClick={() => setShowCommunityModal(false)}
+                aria-label="閉じる"
+              >
+                ✕
+              </button>
+            </div>
+            <CommunityJoinCreateForm
+              joinCode={joinCodeInput}
+              onJoinCodeChange={setJoinCodeInput}
+              onJoin={() => handleJoinByCode()}
+              joining={joining}
+              joinError={joinError}
+              createName={createNameInput}
+              onCreateNameChange={setCreateNameInput}
+              onCreate={handleCreateCommunity}
+              creating={creating}
+              createError={createError}
+              createdInfo={createdInfo}
+              onCopy={handleCopyText}
+            />
           </div>
         </div>
       )}
