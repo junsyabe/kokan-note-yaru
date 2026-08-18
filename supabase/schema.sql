@@ -44,9 +44,12 @@ create table if not exists communities (
 create table if not exists community_members (
   community_id uuid not null references communities(id) on delete cascade,
   user_id uuid not null references auth.users(id) on delete cascade,
+  display_name text,
   joined_at timestamptz not null default now(),
   primary key (community_id, user_id)
 );
+-- Safe to re-run on a database that was set up before display_name existed.
+alter table community_members add column if not exists display_name text;
 
 create table if not exists entry_communities (
   entry_id uuid not null references diary_entries(id) on delete cascade,
@@ -173,14 +176,17 @@ set search_path = public
 as $$
 declare
   target_id uuid;
+  caller_name text;
 begin
   select id into target_id from communities where invite_code = code;
   if target_id is null then
     raise exception 'invalid invite code';
   end if;
-  insert into community_members (community_id, user_id)
-  values (target_id, auth.uid())
-  on conflict (community_id, user_id) do nothing;
+  select coalesce(raw_user_meta_data->>'display_name', email) into caller_name
+  from auth.users where id = auth.uid();
+  insert into community_members (community_id, user_id, display_name)
+  values (target_id, auth.uid(), caller_name)
+  on conflict (community_id, user_id) do update set display_name = excluded.display_name;
   return target_id;
 end;
 $$;
@@ -196,11 +202,14 @@ as $$
 declare
   new_id uuid := gen_random_uuid();
   new_code text := substr(md5(random()::text || clock_timestamp()::text), 1, 8);
+  caller_name text;
 begin
+  select coalesce(raw_user_meta_data->>'display_name', email) into caller_name
+  from auth.users where id = auth.uid();
   insert into communities (id, name, invite_code, created_by)
   values (new_id, community_name, new_code, auth.uid());
-  insert into community_members (community_id, user_id)
-  values (new_id, auth.uid());
+  insert into community_members (community_id, user_id, display_name)
+  values (new_id, auth.uid(), caller_name);
   return query select new_id, new_code;
 end;
 $$;

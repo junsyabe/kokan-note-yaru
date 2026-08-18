@@ -192,7 +192,8 @@ export default function HomePage() {
   const [myCommunities, setMyCommunities] = useState([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
   const [currentCommunityId, setCurrentCommunityId] = useState(null);
-  const [memberIds, setMemberIds] = useState([]);
+  const [communityMembers, setCommunityMembers] = useState([]);
+  const [showMembersModal, setShowMembersModal] = useState(false);
 
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState("");
@@ -359,19 +360,20 @@ export default function HomePage() {
     return () => supabase.removeChannel(channel);
   }, [session, currentCommunityId, loadEntries]);
 
-  // Membership list for the current community, used to build the friend
-  // filter chips (independent of who has actually posted).
+  // Membership list for the current community: used to build the friend
+  // filter chips (independent of who has actually posted) and the members
+  // modal.
   useEffect(() => {
     if (!currentCommunityId) {
-      setMemberIds([]);
+      setCommunityMembers([]);
       return;
     }
     supabase
       .from("community_members")
-      .select("user_id")
+      .select("user_id, display_name")
       .eq("community_id", currentCommunityId)
       .then(({ data, error }) => {
-        if (!error) setMemberIds((data || []).map((m) => m.user_id));
+        if (!error) setCommunityMembers(data || []);
       });
   }, [currentCommunityId]);
 
@@ -570,26 +572,13 @@ export default function HomePage() {
 
   // --- grouping ---
   // Names of the current community's members (from community_members, not
-  // just whoever has posted), resolved via author_id -> author_name seen in
-  // already-loaded entries/comments (no profiles table to join against).
-  const authorIdToName = useMemo(() => {
-    const map = {};
-    entries.forEach((e) => {
-      map[e.author_id] = e.author_name;
-      (e.comments || []).forEach((c) => {
-        map[c.author_id] = c.author_name;
-      });
-    });
-    if (session?.user?.id) map[session.user.id] = myName;
-    return map;
-  }, [entries, session, myName]);
-
+  // just whoever has posted).
   const communityMemberNames = useMemo(
     () =>
-      Array.from(new Set(memberIds.map((uid) => authorIdToName[uid]).filter(Boolean))).sort((a, b) =>
+      Array.from(new Set(communityMembers.map((m) => m.display_name).filter(Boolean))).sort((a, b) =>
         a.localeCompare(b, "ja")
       ),
-    [memberIds, authorIdToName]
+    [communityMembers]
   );
   const filteredEntries = selectedAuthor
     ? entries.filter((e) => e.author_name === selectedAuthor)
@@ -601,7 +590,7 @@ export default function HomePage() {
   });
   const sortedDates = Object.keys(groups).sort((a, b) => (a < b ? 1 : -1));
   Object.values(groups).forEach((list) =>
-    list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   );
 
   // --- render: loading ---
@@ -741,6 +730,8 @@ export default function HomePage() {
     );
   }
 
+  const currentCommunity = myCommunities.find((c) => c.id === currentCommunityId) || null;
+
   // --- render: signed in (diary feed) ---
   return (
     <div className="konote-app">
@@ -767,6 +758,15 @@ export default function HomePage() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              className="konote-community-add-btn"
+              onClick={() => setShowMembersModal(true)}
+              aria-label="メンバーを表示"
+              title="メンバーを表示"
+            >
+              👥
+            </button>
             <button
               type="button"
               className="konote-community-add-btn"
@@ -1212,6 +1212,63 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {showMembersModal &&
+        currentCommunity &&
+        (() => {
+          const inviteLink = `${window.location.origin}${window.location.pathname}?invite=${currentCommunity.invite_code}`;
+          return (
+            <div className="konote-modal-backdrop" onClick={() => setShowMembersModal(false)}>
+              <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="konote-modal-head">
+                  <h2>{currentCommunity.name}</h2>
+                  <button
+                    className="konote-modal-close"
+                    onClick={() => setShowMembersModal(false)}
+                    aria-label="閉じる"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <label className="konote-field-label">メンバー</label>
+                <div className="konote-member-list">
+                  {communityMembers.map((m) => (
+                    <div className="konote-member-row" key={m.user_id}>
+                      <span
+                        className="konote-avatar konote-member-avatar"
+                        style={{ background: colorForName(m.display_name) }}
+                      >
+                        {(m.display_name || "?").charAt(0)}
+                      </span>
+                      <span className="konote-member-name">{m.display_name}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <label className="konote-field-label">招待コード</label>
+                <div className="konote-community-row">
+                  <input className="konote-auth-input" value={currentCommunity.invite_code} readOnly />
+                  <button
+                    type="button"
+                    className="konote-community-btn"
+                    onClick={() => handleCopyText(currentCommunity.invite_code)}
+                  >
+                    コピー
+                  </button>
+                </div>
+
+                <label className="konote-field-label">招待リンク</label>
+                <div className="konote-community-row">
+                  <input className="konote-auth-input" value={inviteLink} readOnly />
+                  <button type="button" className="konote-community-btn" onClick={() => handleCopyText(inviteLink)}>
+                    コピー
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }

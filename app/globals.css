@@ -356,6 +356,31 @@ body {
   cursor: pointer;
 }
 
+/* ---- Community members modal ---- */
+.konote-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 16px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.konote-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.konote-member-avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+.konote-member-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-text);
+}
+
 /* ---- Page / content ---- */
 .konote-page {
   width: 100%;
