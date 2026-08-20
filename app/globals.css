@@ -562,6 +562,13 @@ body {
 .konote-time-edited {
   opacity: 0.7;
 }
+.konote-entry-title {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  font-size: 16px;
+  color: var(--ink-text);
+  margin: 0 0 6px;
+}
 .konote-entry-content {
   font-size: 14px;
   line-height: 1.8;
@@ -608,6 +615,18 @@ body {
 .konote-edit-block-sm .konote-edit-textarea {
   font-size: 12px;
   padding: 6px 8px;
+}
+.konote-edit-title-input {
+  width: 100%;
+  border: 1px solid rgba(59, 54, 44, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-text);
+  background: #fff;
+  outline: none;
+  margin-bottom: 8px;
 }
 .konote-edit-actions {
   display: flex;
@@ -810,6 +829,10 @@ body {
   font-weight: 700;
   font-size: 16px;
   color: var(--ink-text);
+}
+.konote-profile-name-edit {
+  flex: 1;
+  min-width: 0;
 }
 .konote-profile-empty {
   font-size: 13px;
