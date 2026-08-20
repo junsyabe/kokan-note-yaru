@@ -457,13 +457,32 @@ export default function HomePage() {
       .from("community_members")
       .update({ display_name: trimmed })
       .eq("user_id", session.user.id);
-    setSavingName(false);
     if (memberError) {
+      setSavingName(false);
       setNameError(withDetail("メンバー情報の更新に失敗しました。", memberError));
+      return;
+    }
+    const { error: entriesError } = await supabase
+      .from("diary_entries")
+      .update({ author_name: trimmed })
+      .eq("author_id", session.user.id);
+    if (entriesError) {
+      setSavingName(false);
+      setNameError(withDetail("過去の投稿の更新に失敗しました。", entriesError));
+      return;
+    }
+    const { error: commentsError } = await supabase
+      .from("comments")
+      .update({ author_name: trimmed })
+      .eq("author_id", session.user.id);
+    setSavingName(false);
+    if (commentsError) {
+      setNameError(withDetail("過去のコメントの更新に失敗しました。", commentsError));
       return;
     }
     setDisplayNameOverride(trimmed);
     setEditingName(false);
+    loadEntries(currentCommunityId);
   };
 
   // --- entry / comment actions ---
