@@ -172,6 +172,7 @@ export default function HomePage() {
   const [selectedAuthor, setSelectedAuthor] = useState(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
   const [newDate, setNewDate] = useState(todayStr());
   const [posting, setPosting] = useState(false);
@@ -180,6 +181,7 @@ export default function HomePage() {
   const [postingComment, setPostingComment] = useState({});
 
   const [editingEntryId, setEditingEntryId] = useState(null);
+  const [editEntryTitleDraft, setEditEntryTitleDraft] = useState("");
   const [editEntryDraft, setEditEntryDraft] = useState("");
   const [savingEntryEdit, setSavingEntryEdit] = useState(false);
 
@@ -188,6 +190,11 @@ export default function HomePage() {
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
 
   const [profileTarget, setProfileTarget] = useState(null);
+  const [displayNameOverride, setDisplayNameOverride] = useState(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState(null);
 
   const [myCommunities, setMyCommunities] = useState([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
@@ -215,7 +222,15 @@ export default function HomePage() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const myName = session?.user?.user_metadata?.display_name || session?.user?.email || "";
+  const myName =
+    displayNameOverride || session?.user?.user_metadata?.display_name || session?.user?.email || "";
+
+  // Reset any in-progress rename UI whenever the profile modal's target
+  // changes (closed, or switched to viewing someone else).
+  useEffect(() => {
+    setEditingName(false);
+    setNameError(null);
+  }, [profileTarget]);
 
   // --- communities ---
   const loadMyCommunities = useCallback(async () => {
@@ -415,6 +430,42 @@ export default function HomePage() {
     await supabase.auth.signOut();
   };
 
+  const startEditName = () => {
+    setNameDraft(myName);
+    setNameError(null);
+    setEditingName(true);
+  };
+
+  const cancelEditName = () => {
+    setEditingName(false);
+    setNameDraft("");
+    setNameError(null);
+  };
+
+  const saveEditName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) return;
+    setSavingName(true);
+    setNameError(null);
+    const { error: authError } = await supabase.auth.updateUser({ data: { display_name: trimmed } });
+    if (authError) {
+      setSavingName(false);
+      setNameError(withDetail("名前の変更に失敗しました。", authError));
+      return;
+    }
+    const { error: memberError } = await supabase
+      .from("community_members")
+      .update({ display_name: trimmed })
+      .eq("user_id", session.user.id);
+    setSavingName(false);
+    if (memberError) {
+      setNameError(withDetail("メンバー情報の更新に失敗しました。", memberError));
+      return;
+    }
+    setDisplayNameOverride(trimmed);
+    setEditingName(false);
+  };
+
   // --- entry / comment actions ---
   const handlePost = async () => {
     const trimmed = newContent.trim();
@@ -431,6 +482,7 @@ export default function HomePage() {
       author_id: session.user.id,
       author_name: myName,
       entry_date: newDate,
+      title: newTitle.trim() || null,
       content: trimmed,
     });
     if (error) {
@@ -446,6 +498,7 @@ export default function HomePage() {
       setErrorMsg(withDetail("コミュニティへの投稿の紐付けに失敗しました。", linkError));
       return;
     }
+    setNewTitle("");
     setNewContent("");
     setNewDate(todayStr());
     setShowForm(false);
@@ -474,11 +527,13 @@ export default function HomePage() {
 
   const startEditEntry = (entry) => {
     setEditingEntryId(entry.id);
+    setEditEntryTitleDraft(entry.title || "");
     setEditEntryDraft(entry.content);
   };
 
   const cancelEditEntry = () => {
     setEditingEntryId(null);
+    setEditEntryTitleDraft("");
     setEditEntryDraft("");
   };
 
@@ -488,7 +543,11 @@ export default function HomePage() {
     setSavingEntryEdit(true);
     const { error } = await supabase
       .from("diary_entries")
-      .update({ content: trimmed, updated_at: new Date().toISOString() })
+      .update({
+        title: editEntryTitleDraft.trim() || null,
+        content: trimmed,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", entryId);
     setSavingEntryEdit(false);
     if (error) {
@@ -496,6 +555,7 @@ export default function HomePage() {
       return;
     }
     setEditingEntryId(null);
+    setEditEntryTitleDraft("");
     setEditEntryDraft("");
     loadEntries(currentCommunityId);
   };
@@ -895,6 +955,14 @@ export default function HomePage() {
                     </div>
                     {editingEntryId === entry.id ? (
                       <div className="konote-edit-block">
+                        <input
+                          type="text"
+                          className="konote-edit-title-input"
+                          value={editEntryTitleDraft}
+                          onChange={(e) => setEditEntryTitleDraft(e.target.value)}
+                          placeholder="タイトル(任意)"
+                          maxLength={60}
+                        />
                         <textarea
                           className="konote-edit-textarea"
                           value={editEntryDraft}
@@ -920,7 +988,10 @@ export default function HomePage() {
                         </div>
                       </div>
                     ) : (
-                      <p className="konote-entry-content">{entry.content}</p>
+                      <>
+                        {entry.title && <h3 className="konote-entry-title">{entry.title}</h3>}
+                        <p className="konote-entry-content">{entry.content}</p>
+                      </>
                     )}
 
                     <div className="konote-comments">
@@ -1062,6 +1133,15 @@ export default function HomePage() {
               value={newDate}
               onChange={(e) => setNewDate(e.target.value)}
             />
+            <label className="konote-field-label">タイトル(任意)</label>
+            <input
+              type="text"
+              className="konote-auth-input"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="タイトル(任意)"
+              maxLength={60}
+            />
             <label className="konote-field-label">今日の出来事</label>
             <textarea
               className="konote-textarea"
@@ -1113,7 +1193,46 @@ export default function HomePage() {
               <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(profileTarget) }}>
                 {profileTarget.charAt(0)}
               </span>
-              <span className="konote-profile-name">{profileTarget}</span>
+              {profileTarget === myName && editingName ? (
+                <div className="konote-profile-name-edit">
+                  <input
+                    type="text"
+                    className="konote-auth-input"
+                    value={nameDraft}
+                    onChange={(e) => setNameDraft(e.target.value)}
+                    placeholder="なまえ"
+                    maxLength={20}
+                  />
+                  <div className="konote-edit-actions">
+                    <button className="konote-edit-cancel" onClick={cancelEditName} disabled={savingName}>
+                      キャンセル
+                    </button>
+                    <button
+                      className="konote-edit-save"
+                      onClick={saveEditName}
+                      disabled={!nameDraft.trim() || savingName}
+                    >
+                      {savingName ? "保存中…" : "保存"}
+                    </button>
+                  </div>
+                  {nameError && <p className="konote-error">{nameError}</p>}
+                </div>
+              ) : (
+                <>
+                  <span className="konote-profile-name">{profileTarget}</span>
+                  {profileTarget === myName && (
+                    <button
+                      type="button"
+                      className="konote-edit-btn"
+                      onClick={startEditName}
+                      aria-label="名前を変更"
+                      title="名前を変更"
+                    >
+                      ✎
+                    </button>
+                  )}
+                </>
+              )}
             </div>
 
             {profileStats.count === 0 ? (

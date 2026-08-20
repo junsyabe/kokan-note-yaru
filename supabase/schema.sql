@@ -8,10 +8,13 @@ create table if not exists diary_entries (
   author_id uuid not null references auth.users(id) on delete cascade,
   author_name text not null,
   entry_date date not null,
+  title text,
   content text not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- Safe to re-run on a database that was set up before title existed.
+alter table diary_entries add column if not exists title text;
 
 -- Comments on diary entries
 create table if not exists comments (
@@ -154,6 +157,12 @@ create policy "read own communities" on communities
 drop policy if exists "read own memberships" on community_members;
 create policy "read own memberships" on community_members
   for select using ( is_community_member(community_id) );
+
+-- Lets a member update their own display_name (used by the rename-yourself
+-- profile feature); does not allow touching anyone else's row.
+drop policy if exists "update own membership" on community_members;
+create policy "update own membership" on community_members
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 drop policy if exists "read own entry_communities" on entry_communities;
 create policy "read own entry_communities" on entry_communities
