@@ -628,6 +628,9 @@ body {
   outline: none;
   margin-bottom: 8px;
 }
+.konote-edit-date-input {
+  margin-top: 8px;
+}
 .konote-edit-actions {
   display: flex;
   justify-content: flex-end;
