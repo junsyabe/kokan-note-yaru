@@ -183,6 +183,7 @@ export default function HomePage() {
   const [editingEntryId, setEditingEntryId] = useState(null);
   const [editEntryTitleDraft, setEditEntryTitleDraft] = useState("");
   const [editEntryDraft, setEditEntryDraft] = useState("");
+  const [editEntryDateDraft, setEditEntryDateDraft] = useState("");
   const [savingEntryEdit, setSavingEntryEdit] = useState(false);
 
   const [editingCommentId, setEditingCommentId] = useState(null);
@@ -548,23 +549,26 @@ export default function HomePage() {
     setEditingEntryId(entry.id);
     setEditEntryTitleDraft(entry.title || "");
     setEditEntryDraft(entry.content);
+    setEditEntryDateDraft(entry.entry_date);
   };
 
   const cancelEditEntry = () => {
     setEditingEntryId(null);
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
+    setEditEntryDateDraft("");
   };
 
   const saveEditEntry = async (entryId) => {
     const trimmed = editEntryDraft.trim();
-    if (!trimmed) return;
+    if (!trimmed || !editEntryDateDraft) return;
     setSavingEntryEdit(true);
     const { error } = await supabase
       .from("diary_entries")
       .update({
         title: editEntryTitleDraft.trim() || null,
         content: trimmed,
+        entry_date: editEntryDateDraft,
         updated_at: new Date().toISOString(),
       })
       .eq("id", entryId);
@@ -576,6 +580,7 @@ export default function HomePage() {
     setEditingEntryId(null);
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
+    setEditEntryDateDraft("");
     loadEntries(currentCommunityId);
   };
 
@@ -989,6 +994,12 @@ export default function HomePage() {
                           rows={4}
                           maxLength={2000}
                         />
+                        <input
+                          type="date"
+                          className="konote-date-input konote-edit-date-input"
+                          value={editEntryDateDraft}
+                          onChange={(e) => setEditEntryDateDraft(e.target.value)}
+                        />
                         <div className="konote-edit-actions">
                           <button
                             className="konote-edit-cancel"
@@ -1000,7 +1011,7 @@ export default function HomePage() {
                           <button
                             className="konote-edit-save"
                             onClick={() => saveEditEntry(entry.id)}
-                            disabled={!editEntryDraft.trim() || savingEntryEdit}
+                            disabled={!editEntryDraft.trim() || !editEntryDateDraft || savingEntryEdit}
                           >
                             {savingEntryEdit ? "保存中…" : "保存"}
                           </button>
