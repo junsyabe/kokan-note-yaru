@@ -6,6 +6,18 @@ import { supabase } from "../lib/supabaseClient";
 const AUTHOR_COLORS = ["#2D6A93", "#93445B", "#4C7A5D", "#8B5FA0", "#B9762F", "#3E6B6B"];
 const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
 
 function colorForName(name) {
   if (!name) return AUTHOR_COLORS[0];
@@ -197,6 +209,10 @@ export default function HomePage() {
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState(null);
 
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushStatus, setPushStatus] = useState(null);
+
   const [myCommunities, setMyCommunities] = useState([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
   const [currentCommunityId, setCurrentCommunityId] = useState(null);
@@ -226,11 +242,12 @@ export default function HomePage() {
   const myName =
     displayNameOverride || session?.user?.user_metadata?.display_name || session?.user?.email || "";
 
-  // Reset any in-progress rename UI whenever the profile modal's target
-  // changes (closed, or switched to viewing someone else).
+  // Reset any in-progress rename/notification UI whenever the profile
+  // modal's target changes (closed, or switched to viewing someone else).
   useEffect(() => {
     setEditingName(false);
     setNameError(null);
+    setPushStatus(null);
   }, [profileTarget]);
 
   // --- communities ---
@@ -484,6 +501,67 @@ export default function HomePage() {
     setDisplayNameOverride(trimmed);
     setEditingName(false);
     loadEntries(currentCommunityId);
+  };
+
+  // --- push notifications ---
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from("push_subscriptions")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .limit(1)
+      .then(({ data, error }) => {
+        if (!error) setPushSubscribed((data || []).length > 0);
+      });
+  }, [session]);
+
+  const handleEnablePush = async () => {
+    setPushStatus(null);
+    const isStandalone =
+      window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    if (!isStandalone) {
+      setPushStatus("ホーム画面に追加してから有効にできます。");
+      return;
+    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setPushStatus("この端末では利用できません。");
+      return;
+    }
+    setPushBusy(true);
+    try {
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushBusy(false);
+        setPushStatus("通知が許可されませんでした。");
+        return;
+      }
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+      const subJson = subscription.toJSON();
+      const { error } = await supabase.from("push_subscriptions").upsert(
+        {
+          user_id: session.user.id,
+          endpoint: subJson.endpoint,
+          p256dh: subJson.keys.p256dh,
+          auth_key: subJson.keys.auth,
+        },
+        { onConflict: "endpoint" }
+      );
+      setPushBusy(false);
+      if (error) {
+        setPushStatus(withDetail("通知の登録に失敗しました。", error));
+        return;
+      }
+      setPushSubscribed(true);
+      setPushStatus("通知が有効になりました。");
+    } catch (err) {
+      setPushBusy(false);
+      setPushStatus(withDetail("通知の登録に失敗しました。", err));
+    }
   };
 
   // --- entry / comment actions ---
@@ -1323,9 +1401,24 @@ export default function HomePage() {
             )}
 
             {profileTarget === myName && (
-              <button className="konote-profile-logout" onClick={handleLogout}>
-                ログアウト
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="konote-profile-notify-btn"
+                  onClick={handleEnablePush}
+                  disabled={pushBusy || pushSubscribed}
+                >
+                  {pushBusy ? "処理中…" : pushSubscribed ? "通知は有効です" : "通知を受け取る"}
+                </button>
+                {pushStatus && (
+                  <p className="konote-error" style={pushSubscribed ? { color: "#2D6A93" } : undefined}>
+                    {pushStatus}
+                  </p>
+                )}
+                <button className="konote-profile-logout" onClick={handleLogout}>
+                  ログアウト
+                </button>
+              </>
             )}
           </div>
         </div>
