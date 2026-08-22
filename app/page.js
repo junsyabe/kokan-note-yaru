@@ -9,8 +9,12 @@ const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
 function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  // Defensive cleanup: env vars pasted into a dashboard commonly pick up
+  // surrounding quotes or stray whitespace, which makes atob() throw
+  // "The string contains invalid characters" instead of a useful error.
+  const cleaned = base64String.trim().replace(/^['"]+|['"]+$/g, "");
+  const padding = "=".repeat((4 - (cleaned.length % 4)) % 4);
+  const base64 = (cleaned + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; i++) {
@@ -526,6 +530,10 @@ export default function HomePage() {
     }
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
       setPushStatus("この端末では利用できません。");
+      return;
+    }
+    if (!VAPID_PUBLIC_KEY.trim()) {
+      setPushStatus("通知の設定が未完了です(VAPID鍵が見つかりません)。");
       return;
     }
     setPushBusy(true);
