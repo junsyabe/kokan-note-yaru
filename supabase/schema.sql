@@ -223,6 +223,33 @@ begin
 end;
 $$;
 
+-- Web push subscriptions, one row per device/browser a user enabled
+-- notifications on. The sending side (Edge Function + trigger) already
+-- exists on this project; this table/RLS mirrors what it was described as
+-- expecting.
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth_key text not null,
+  created_at timestamptz not null default now()
+);
+
+alter table push_subscriptions enable row level security;
+
+drop policy if exists "read own push subscriptions" on push_subscriptions;
+create policy "read own push subscriptions" on push_subscriptions
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "insert own push subscriptions" on push_subscriptions;
+create policy "insert own push subscriptions" on push_subscriptions
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "update own push subscriptions" on push_subscriptions;
+create policy "update own push subscriptions" on push_subscriptions
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Realtime so everyone sees new entries/comments live, no polling.
 -- Only add a table to the publication if it isn't already a member,
 -- otherwise re-running this script would error.
