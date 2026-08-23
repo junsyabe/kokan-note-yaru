@@ -131,6 +131,10 @@ drop policy if exists "update own entries" on diary_entries;
 create policy "update own entries" on diary_entries
   for update using (auth.uid() = author_id) with check (auth.uid() = author_id);
 
+drop policy if exists "delete own entries" on diary_entries;
+create policy "delete own entries" on diary_entries
+  for delete using (auth.uid() = author_id);
+
 drop policy if exists "read all comments" on comments;
 drop policy if exists "read own community comments" on comments;
 create policy "read own community comments" on comments
@@ -149,6 +153,10 @@ create policy "insert own comments" on comments
 drop policy if exists "update own comments" on comments;
 create policy "update own comments" on comments
   for update using (auth.uid() = author_id) with check (auth.uid() = author_id);
+
+drop policy if exists "delete own comments" on comments;
+create policy "delete own comments" on comments
+  for delete using (auth.uid() = author_id);
 
 drop policy if exists "read own communities" on communities;
 create policy "read own communities" on communities

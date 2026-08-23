@@ -206,6 +206,11 @@ export default function HomePage() {
   const [editCommentDraft, setEditCommentDraft] = useState("");
   const [savingCommentEdit, setSavingCommentEdit] = useState(false);
 
+  const [confirmDeleteEntryId, setConfirmDeleteEntryId] = useState(null);
+  const [deletingEntry, setDeletingEntry] = useState(false);
+  const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState(null);
+  const [deletingComment, setDeletingComment] = useState(false);
+
   const [profileTarget, setProfileTarget] = useState(null);
   const [displayNameOverride, setDisplayNameOverride] = useState(null);
   const [editingName, setEditingName] = useState(false);
@@ -698,6 +703,30 @@ export default function HomePage() {
     loadEntries(currentCommunityId);
   };
 
+  const handleDeleteEntry = async (entryId) => {
+    setDeletingEntry(true);
+    const { error } = await supabase.from("diary_entries").delete().eq("id", entryId);
+    setDeletingEntry(false);
+    if (error) {
+      setErrorMsg(withDetail("日記の削除に失敗しました。", error));
+      return;
+    }
+    setConfirmDeleteEntryId(null);
+    loadEntries(currentCommunityId);
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    setDeletingComment(true);
+    const { error } = await supabase.from("comments").delete().eq("id", commentId);
+    setDeletingComment(false);
+    if (error) {
+      setErrorMsg(withDetail("コメントの削除に失敗しました。", error));
+      return;
+    }
+    setConfirmDeleteCommentId(null);
+    loadEntries(currentCommunityId);
+  };
+
   // --- profile stats (derived from already-loaded entries, no extra queries) ---
   const profileStats = useMemo(() => {
     if (!profileTarget) return { count: 0 };
@@ -1052,18 +1081,50 @@ export default function HomePage() {
                       ) : (
                         <span className="konote-entry-time">{formatTime(entry.entry_date, entry.created_at)}</span>
                       )}
-                      {entry.author_id === session.user.id && editingEntryId !== entry.id && (
-                        <button
-                          className="konote-edit-btn"
-                          onClick={() => startEditEntry(entry)}
-                          aria-label="日記を編集"
-                          title="編集"
-                        >
-                          ✎
-                        </button>
-                      )}
+                      {entry.author_id === session.user.id &&
+                        editingEntryId !== entry.id &&
+                        confirmDeleteEntryId !== entry.id && (
+                          <>
+                            <button
+                              className="konote-edit-btn"
+                              onClick={() => startEditEntry(entry)}
+                              aria-label="日記を編集"
+                              title="編集"
+                            >
+                              ✎
+                            </button>
+                            <button
+                              className="konote-delete-btn"
+                              onClick={() => setConfirmDeleteEntryId(entry.id)}
+                              aria-label="日記を削除"
+                              title="削除"
+                            >
+                              🗑
+                            </button>
+                          </>
+                        )}
                     </div>
-                    {editingEntryId === entry.id ? (
+                    {confirmDeleteEntryId === entry.id ? (
+                      <div className="konote-delete-confirm">
+                        <p className="konote-delete-confirm-text">本当に削除しますか？</p>
+                        <div className="konote-edit-actions">
+                          <button
+                            className="konote-edit-cancel"
+                            onClick={() => setConfirmDeleteEntryId(null)}
+                            disabled={deletingEntry}
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            className="konote-delete-confirm-btn"
+                            onClick={() => handleDeleteEntry(entry.id)}
+                            disabled={deletingEntry}
+                          >
+                            {deletingEntry ? "削除中…" : "削除"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : editingEntryId === entry.id ? (
                       <div className="konote-edit-block">
                         <input
                           type="text"
@@ -1153,7 +1214,27 @@ export default function HomePage() {
                                 </span>
                               )}
                             </div>
-                            {editingCommentId === c.id ? (
+                            {confirmDeleteCommentId === c.id ? (
+                              <div className="konote-delete-confirm konote-delete-confirm-sm">
+                                <p className="konote-delete-confirm-text">本当に削除しますか？</p>
+                                <div className="konote-edit-actions">
+                                  <button
+                                    className="konote-edit-cancel"
+                                    onClick={() => setConfirmDeleteCommentId(null)}
+                                    disabled={deletingComment}
+                                  >
+                                    キャンセル
+                                  </button>
+                                  <button
+                                    className="konote-delete-confirm-btn"
+                                    onClick={() => handleDeleteComment(c.id)}
+                                    disabled={deletingComment}
+                                  >
+                                    {deletingComment ? "削除中…" : "削除"}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : editingCommentId === c.id ? (
                               <div className="konote-edit-block konote-edit-block-sm">
                                 <textarea
                                   className="konote-edit-textarea"
@@ -1183,16 +1264,28 @@ export default function HomePage() {
                               <span className="konote-comment-text">{c.content}</span>
                             )}
                           </div>
-                          {c.author_id === session.user.id && editingCommentId !== c.id && (
-                            <button
-                              className="konote-edit-btn konote-edit-btn-sm"
-                              onClick={() => startEditComment(c)}
-                              aria-label="コメントを編集"
-                              title="編集"
-                            >
-                              ✎
-                            </button>
-                          )}
+                          {c.author_id === session.user.id &&
+                            editingCommentId !== c.id &&
+                            confirmDeleteCommentId !== c.id && (
+                              <>
+                                <button
+                                  className="konote-edit-btn konote-edit-btn-sm"
+                                  onClick={() => startEditComment(c)}
+                                  aria-label="コメントを編集"
+                                  title="編集"
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  className="konote-delete-btn konote-delete-btn-sm"
+                                  onClick={() => setConfirmDeleteCommentId(c.id)}
+                                  aria-label="コメントを削除"
+                                  title="削除"
+                                >
+                                  🗑
+                                </button>
+                              </>
+                            )}
                         </div>
                       ))}
                       <div className="konote-comment-form">
