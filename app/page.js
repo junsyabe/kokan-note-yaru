@@ -186,6 +186,9 @@ export default function HomePage() {
   const [entriesLoading, setEntriesLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedAuthor, setSelectedAuthor] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [dateFilterDraft, setDateFilterDraft] = useState(todayStr());
 
   const [showForm, setShowForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -779,9 +782,11 @@ export default function HomePage() {
       ),
     [communityMembers]
   );
-  const filteredEntries = selectedAuthor
-    ? entries.filter((e) => e.author_name === selectedAuthor)
-    : entries;
+  const filteredEntries = entries.filter((e) => {
+    if (selectedAuthor && e.author_name !== selectedAuthor) return false;
+    if (selectedDate && e.entry_date !== selectedDate) return false;
+    return true;
+  });
   const groups = {};
   filteredEntries.forEach((e) => {
     if (!groups[e.entry_date]) groups[e.entry_date] = [];
@@ -1000,25 +1005,69 @@ export default function HomePage() {
         {errorMsg && <div className="konote-error-banner">{errorMsg}</div>}
 
         {!entriesLoading && communityMemberNames.length > 0 && (
-          <div className="konote-filter-row">
-            <button
-              className={`konote-filter-chip ${!selectedAuthor ? "is-active" : ""}`}
-              onClick={() => setSelectedAuthor(null)}
-            >
-              すべて
-            </button>
-            {communityMemberNames.map((author) => (
+          <div className="konote-filter-wrap">
+            <div className="konote-filter-row">
               <button
-                key={author}
-                className={`konote-filter-chip ${selectedAuthor === author ? "is-active" : ""}`}
-                onClick={() => setSelectedAuthor(author)}
+                type="button"
+                className="konote-date-filter-btn"
+                onClick={() => {
+                  setDateFilterDraft(selectedDate || todayStr());
+                  setShowDateFilter((v) => !v);
+                }}
+                aria-label="日付で絞り込む"
+                title="日付で絞り込む"
               >
-                <span className="konote-filter-avatar" style={{ background: colorForName(author) }}>
-                  {author.charAt(0)}
-                </span>
-                {author}
+                📅
               </button>
-            ))}
+              {selectedDate && (
+                <button
+                  type="button"
+                  className="konote-date-filter-active-chip"
+                  onClick={() => setSelectedDate(null)}
+                >
+                  {formatDateStamp(selectedDate).main}のみ表示中 ✕
+                </button>
+              )}
+              <button
+                className={`konote-filter-chip ${!selectedAuthor ? "is-active" : ""}`}
+                onClick={() => setSelectedAuthor(null)}
+              >
+                すべて
+              </button>
+              {communityMemberNames.map((author) => (
+                <button
+                  key={author}
+                  className={`konote-filter-chip ${selectedAuthor === author ? "is-active" : ""}`}
+                  onClick={() => setSelectedAuthor(author)}
+                >
+                  <span className="konote-filter-avatar" style={{ background: colorForName(author) }}>
+                    {author.charAt(0)}
+                  </span>
+                  {author}
+                </button>
+              ))}
+            </div>
+            {showDateFilter && (
+              <div className="konote-date-filter-popover">
+                <input
+                  type="date"
+                  className="konote-date-input"
+                  value={dateFilterDraft}
+                  onChange={(e) => setDateFilterDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="konote-date-filter-apply"
+                  onClick={() => {
+                    setSelectedDate(dateFilterDraft);
+                    setShowDateFilter(false);
+                  }}
+                  disabled={!dateFilterDraft}
+                >
+                  この日に絞り込む
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1028,7 +1077,9 @@ export default function HomePage() {
           </p>
         ) : sortedDates.length === 0 ? (
           <div className="konote-empty">
-            {selectedAuthor ? (
+            {selectedDate ? (
+              <p>この日の投稿はありません。</p>
+            ) : selectedAuthor ? (
               <p>{selectedAuthor}さんの日記はまだありません。</p>
             ) : (
               <>

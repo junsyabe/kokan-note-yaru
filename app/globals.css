@@ -419,6 +419,69 @@ body {
   font-size: 13px;
 }
 
+/* ---- Date filter ---- */
+.konote-filter-wrap {
+  position: relative;
+}
+.konote-date-filter-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 1px solid rgba(59, 54, 44, 0.25);
+  background: var(--card-bg);
+  border-radius: 50%;
+  font-size: 14px;
+  cursor: pointer;
+}
+.konote-date-filter-popover {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  z-index: 5;
+  width: 220px;
+  background: var(--card-bg);
+  border: 1px solid rgba(59, 54, 44, 0.2);
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.konote-date-filter-popover .konote-date-input {
+  margin-bottom: 10px;
+}
+.konote-date-filter-apply {
+  width: 100%;
+  border: none;
+  background: var(--kon-peki);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.konote-date-filter-apply:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.konote-date-filter-active-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  border: 1px solid var(--kon-peki);
+  background: rgba(45, 106, 147, 0.08);
+  color: var(--kon-peki);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 /* ---- Friend filter chips ---- */
 .konote-filter-row {
   display: flex;
