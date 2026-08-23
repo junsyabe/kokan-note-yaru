@@ -885,3 +885,22 @@ body {
 .konote-profile-logout:hover {
   background: rgba(147, 68, 91, 0.08);
 }
+.konote-profile-notify-btn {
+  width: 100%;
+  border: 1px solid rgba(45, 106, 147, 0.4);
+  background: transparent;
+  color: var(--kon-peki);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 11px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 18px;
+}
+.konote-profile-notify-btn:hover:not(:disabled) {
+  background: rgba(45, 106, 147, 0.08);
+}
+.konote-profile-notify-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
