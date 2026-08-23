@@ -224,9 +224,9 @@ end;
 $$;
 
 -- Web push subscriptions, one row per device/browser a user enabled
--- notifications on. The sending side (Edge Function + trigger) already
--- exists on this project; this table/RLS mirrors what it was described as
--- expecting.
+-- notifications on. The sending side is a separately-deployed Supabase Edge
+-- Function ("send-notification", not part of this repo) invoked by the
+-- triggers below.
 create table if not exists push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -249,6 +249,55 @@ create policy "insert own push subscriptions" on push_subscriptions
 drop policy if exists "update own push subscriptions" on push_subscriptions;
 create policy "update own push subscriptions" on push_subscriptions
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Fires the send-notification Edge Function on new entries/comments via
+-- pg_net (this project's Studio has no Database Webhooks UI, so the
+-- webhook is wired up as plain triggers instead). The Edge Function must
+-- have "Verify JWT with legacy secret" disabled, since net.http_post here
+-- carries no JWT.
+create extension if not exists pg_net with schema extensions;
+
+create or replace function notify_diary_entries()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform net.http_post(
+    url := 'https://htmekgvedrabadaglqjx.supabase.co/functions/v1/send-notification',
+    headers := jsonb_build_object('Content-Type', 'application/json'),
+    body := jsonb_build_object('table', 'diary_entries', 'record', row_to_json(new))
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_diary_entries on diary_entries;
+create trigger trg_notify_diary_entries
+after insert on diary_entries
+for each row execute function notify_diary_entries();
+
+create or replace function notify_comments()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform net.http_post(
+    url := 'https://htmekgvedrabadaglqjx.supabase.co/functions/v1/send-notification',
+    headers := jsonb_build_object('Content-Type', 'application/json'),
+    body := jsonb_build_object('table', 'comments', 'record', row_to_json(new))
+  );
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_comments on comments;
+create trigger trg_notify_comments
+after insert on comments
+for each row execute function notify_comments();
 
 -- Realtime so everyone sees new entries/comments live, no polling.
 -- Only add a table to the publication if it isn't already a member,

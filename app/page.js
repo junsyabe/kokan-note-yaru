@@ -1423,9 +1423,6 @@ export default function HomePage() {
                     {pushStatus}
                   </p>
                 )}
-                <p style={{ fontSize: "11px", opacity: 0.5, marginTop: "4px" }}>
-                  debug key: ...{VAPID_PUBLIC_KEY.trim().slice(-8) || "(empty)"}
-                </p>
                 <button className="konote-profile-logout" onClick={handleLogout}>
                   ログアウト
                 </button>
