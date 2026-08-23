@@ -664,6 +664,60 @@ body {
   cursor: not-allowed;
 }
 
+.konote-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  font-size: 16px;
+  line-height: 1;
+}
+.konote-delete-btn:hover {
+  color: var(--wine);
+}
+.konote-delete-btn-sm {
+  font-size: 13px;
+  align-self: flex-start;
+}
+.konote-delete-confirm {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(147, 68, 91, 0.3);
+  border-radius: 8px;
+  background: rgba(147, 68, 91, 0.07);
+}
+.konote-delete-confirm-sm {
+  margin-top: 2px;
+  padding: 8px 10px;
+}
+.konote-delete-confirm-text {
+  font-size: 13px;
+  color: var(--ink-text);
+  font-weight: 700;
+}
+.konote-delete-confirm-sm .konote-delete-confirm-text {
+  font-size: 12px;
+}
+.konote-delete-confirm-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--wine);
+  color: #fff;
+}
+.konote-delete-confirm-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ---- Comments ---- */
 .konote-comments {
   border-top: 1px dashed rgba(59, 54, 44, 0.2);
