@@ -1004,9 +1004,9 @@ export default function HomePage() {
       <main className="konote-page">
         {errorMsg && <div className="konote-error-banner">{errorMsg}</div>}
 
-        {!entriesLoading && (
-          <div className="konote-date-filter-row">
-            <div className="konote-date-filter-anchor">
+        {!entriesLoading && communityMemberNames.length > 0 && (
+          <div className="konote-filter-wrap">
+            <div className="konote-filter-row">
               <button
                 type="button"
                 className="konote-date-filter-btn"
@@ -1019,60 +1019,55 @@ export default function HomePage() {
               >
                 📅
               </button>
-              {showDateFilter && (
-                <div className="konote-date-filter-popover">
-                  <input
-                    type="date"
-                    className="konote-date-input"
-                    value={dateFilterDraft}
-                    onChange={(e) => setDateFilterDraft(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="konote-date-filter-apply"
-                    onClick={() => {
-                      setSelectedDate(dateFilterDraft);
-                      setShowDateFilter(false);
-                    }}
-                    disabled={!dateFilterDraft}
-                  >
-                    この日に絞り込む
-                  </button>
-                </div>
+              {selectedDate && (
+                <button
+                  type="button"
+                  className="konote-date-filter-active-chip"
+                  onClick={() => setSelectedDate(null)}
+                >
+                  {formatDateStamp(selectedDate).main}のみ表示中 ✕
+                </button>
               )}
+              <button
+                className={`konote-filter-chip ${!selectedAuthor ? "is-active" : ""}`}
+                onClick={() => setSelectedAuthor(null)}
+              >
+                すべて
+              </button>
+              {communityMemberNames.map((author) => (
+                <button
+                  key={author}
+                  className={`konote-filter-chip ${selectedAuthor === author ? "is-active" : ""}`}
+                  onClick={() => setSelectedAuthor(author)}
+                >
+                  <span className="konote-filter-avatar" style={{ background: colorForName(author) }}>
+                    {author.charAt(0)}
+                  </span>
+                  {author}
+                </button>
+              ))}
             </div>
-            {selectedDate && (
-              <button
-                type="button"
-                className="konote-date-filter-active-chip"
-                onClick={() => setSelectedDate(null)}
-              >
-                {formatDateStamp(selectedDate).main}のみ表示中 ✕
-              </button>
+            {showDateFilter && (
+              <div className="konote-date-filter-popover">
+                <input
+                  type="date"
+                  className="konote-date-input"
+                  value={dateFilterDraft}
+                  onChange={(e) => setDateFilterDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="konote-date-filter-apply"
+                  onClick={() => {
+                    setSelectedDate(dateFilterDraft);
+                    setShowDateFilter(false);
+                  }}
+                  disabled={!dateFilterDraft}
+                >
+                  この日に絞り込む
+                </button>
+              </div>
             )}
-          </div>
-        )}
-
-        {!entriesLoading && communityMemberNames.length > 0 && (
-          <div className="konote-filter-row">
-            <button
-              className={`konote-filter-chip ${!selectedAuthor ? "is-active" : ""}`}
-              onClick={() => setSelectedAuthor(null)}
-            >
-              すべて
-            </button>
-            {communityMemberNames.map((author) => (
-              <button
-                key={author}
-                className={`konote-filter-chip ${selectedAuthor === author ? "is-active" : ""}`}
-                onClick={() => setSelectedAuthor(author)}
-              >
-                <span className="konote-filter-avatar" style={{ background: colorForName(author) }}>
-                  {author.charAt(0)}
-                </span>
-                {author}
-              </button>
-            ))}
           </div>
         )}
 
