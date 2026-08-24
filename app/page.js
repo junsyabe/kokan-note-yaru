@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const AUTHOR_COLORS = ["#2D6A93", "#93445B", "#4C7A5D", "#8B5FA0", "#B9762F", "#3E6B6B"];
 const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
+const PAGE_SIZE = 10;
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -184,6 +185,8 @@ export default function HomePage() {
 
   const [entries, setEntries] = useState([]);
   const [entriesLoading, setEntriesLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedAuthor, setSelectedAuthor] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -215,6 +218,8 @@ export default function HomePage() {
   const [deletingComment, setDeletingComment] = useState(false);
 
   const [profileTarget, setProfileTarget] = useState(null);
+  const [profileStats, setProfileStats] = useState({ count: 0 });
+  const [profileStatsLoading, setProfileStatsLoading] = useState(false);
   const [displayNameOverride, setDisplayNameOverride] = useState(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -350,60 +355,191 @@ export default function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, communitiesLoading]);
 
-  // --- data loading + realtime ---
-  const loadEntries = useCallback(async (communityId) => {
-    if (!communityId) {
-      setEntries([]);
-      setEntriesLoading(false);
-      return;
-    }
-    const { data: entryRows, error: entryErr } = await supabase
+  // --- data loading (paginated) ---
+  // Names -> ids for the currently-selected author filter (server-side
+  // filtering needs author_id; the chips themselves are keyed by
+  // display_name for backward compat with the rest of the UI).
+  const selectedAuthorId = useMemo(() => {
+    if (!selectedAuthor) return null;
+    return communityMembers.find((m) => m.display_name === selectedAuthor)?.user_id || null;
+  }, [selectedAuthor, communityMembers]);
+
+  const fetchEntriesPage = useCallback(async (communityId, authorId, entryDate, cursor) => {
+    let query = supabase
       .from("diary_entries")
       .select("*, entry_communities!inner(community_id)")
       .eq("entry_communities.community_id", communityId)
-      .order("created_at", { ascending: true });
-    if (entryErr) {
-      setErrorMsg(withDetail("日記の読み込みに失敗しました。", entryErr));
-      setEntriesLoading(false);
-      return;
-    }
-    const { data: commentRows, error: commentErr } = await supabase
-      .from("comments")
-      .select("*")
-      .eq("community_id", communityId)
-      .order("created_at", { ascending: true });
-    if (commentErr) {
-      setErrorMsg(withDetail("コメントの読み込みに失敗しました。", commentErr));
-    } else {
-      setErrorMsg(null);
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+    if (authorId) query = query.eq("author_id", authorId);
+    if (entryDate) query = query.eq("entry_date", entryDate);
+    if (cursor) query = query.lt("created_at", cursor);
+    const { data: entryRows, error: entryErr } = await query;
+    if (entryErr) throw entryErr;
+    const ids = (entryRows || []).map((e) => e.id);
+    let commentRows = [];
+    if (ids.length > 0) {
+      const { data, error: commentErr } = await supabase
+        .from("comments")
+        .select("*")
+        .in("entry_id", ids)
+        .order("created_at", { ascending: true });
+      if (commentErr) throw commentErr;
+      commentRows = data || [];
     }
     const byEntry = {};
-    (commentRows || []).forEach((c) => {
+    commentRows.forEach((c) => {
       if (!byEntry[c.entry_id]) byEntry[c.entry_id] = [];
       byEntry[c.entry_id].push(c);
     });
-    setEntries((entryRows || []).map((e) => ({ ...e, comments: byEntry[e.id] || [] })));
-    setEntriesLoading(false);
+    return (entryRows || []).map((e) => ({ ...e, comments: byEntry[e.id] || [] }));
   }, []);
+
+  // Reset & fetch the first page whenever the community or a filter changes.
+  useEffect(() => {
+    if (!session || !currentCommunityId) {
+      setEntries([]);
+      setHasMore(false);
+      setEntriesLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setEntriesLoading(true);
+    fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null)
+      .then((rows) => {
+        if (cancelled) return;
+        setEntries(rows);
+        setHasMore(rows.length === PAGE_SIZE);
+        setErrorMsg(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
+      })
+      .finally(() => {
+        if (!cancelled) setEntriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session, currentCommunityId, selectedAuthorId, selectedDate, fetchEntriesPage]);
+
+  const loadMoreEntries = useCallback(async () => {
+    if (loadingMore || !hasMore || !currentCommunityId || entries.length === 0) return;
+    setLoadingMore(true);
+    const cursor = entries[entries.length - 1].created_at;
+    try {
+      const rows = await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, cursor);
+      setEntries((prev) => [...prev, ...rows]);
+      setHasMore(rows.length === PAGE_SIZE);
+    } catch (err) {
+      setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
+    }
+    setLoadingMore(false);
+  }, [loadingMore, hasMore, currentCommunityId, entries, selectedAuthorId, selectedDate, fetchEntriesPage]);
+
+  // Infinite scroll: observe a sentinel at the bottom of the list.
+  const sentinelRef = useRef(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (observed) => {
+        if (observed[0].isIntersecting) loadMoreEntries();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMoreEntries]);
+
+  // --- realtime: apply just the changed row instead of refetching everything ---
+  // Filters can change without tearing this down; the handlers below read
+  // the latest filter values via refs so a stale closure can't apply an
+  // insert that no longer matches.
+  const selectedAuthorIdRef = useRef(selectedAuthorId);
+  const selectedDateRef = useRef(selectedDate);
+  useEffect(() => {
+    selectedAuthorIdRef.current = selectedAuthorId;
+  }, [selectedAuthorId]);
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   useEffect(() => {
     if (!session || !currentCommunityId) return;
-    setEntriesLoading(true);
-    loadEntries(currentCommunityId);
     const channel = supabase
-      .channel(`diary-changes-${currentCommunityId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "diary_entries" }, () =>
-        loadEntries(currentCommunityId)
+      .channel(`diary-realtime-${currentCommunityId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "entry_communities",
+          filter: `community_id=eq.${currentCommunityId}`,
+        },
+        async (payload) => {
+          const entryId = payload.new.entry_id;
+          const { data, error } = await supabase.from("diary_entries").select("*").eq("id", entryId).single();
+          if (error || !data) return;
+          if (selectedAuthorIdRef.current && data.author_id !== selectedAuthorIdRef.current) return;
+          if (selectedDateRef.current && data.entry_date !== selectedDateRef.current) return;
+          setEntries((prev) => (prev.some((e) => e.id === data.id) ? prev : [{ ...data, comments: [] }, ...prev]));
+        }
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, () =>
-        loadEntries(currentCommunityId)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "diary_entries" }, (payload) => {
+        setEntries((prev) =>
+          prev.map((e) => (e.id === payload.new.id ? { ...e, ...payload.new, comments: e.comments } : e))
+        );
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "diary_entries" }, (payload) => {
+        setEntries((prev) => prev.filter((e) => e.id !== payload.old.id));
+      })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
+        (payload) => {
+          const c = payload.new;
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === c.entry_id && !e.comments.some((existing) => existing.id === c.id)
+                ? { ...e, comments: [...e.comments, c] }
+                : e
+            )
+          );
+        }
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "entry_communities" }, () =>
-        loadEntries(currentCommunityId)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
+        (payload) => {
+          const c = payload.new;
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === c.entry_id
+                ? { ...e, comments: e.comments.map((existing) => (existing.id === c.id ? c : existing)) }
+                : e
+            )
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
+        (payload) => {
+          const deletedId = payload.old.id;
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.comments.some((c) => c.id === deletedId)
+                ? { ...e, comments: e.comments.filter((c) => c.id !== deletedId) }
+                : e
+            )
+          );
+        }
       )
       .subscribe();
     return () => supabase.removeChannel(channel);
-  }, [session, currentCommunityId, loadEntries]);
+  }, [session, currentCommunityId]);
 
   // Membership list for the current community: used to build the friend
   // filter chips (independent of who has actually posted) and the members
@@ -512,7 +648,6 @@ export default function HomePage() {
     }
     setDisplayNameOverride(trimmed);
     setEditingName(false);
-    loadEntries(currentCommunityId);
   };
 
   // --- push notifications ---
@@ -616,7 +751,6 @@ export default function HomePage() {
     setNewContent("");
     setNewDate(todayStr());
     setShowForm(false);
-    loadEntries(currentCommunityId);
   };
 
   const handleAddComment = async (entryId) => {
@@ -636,7 +770,6 @@ export default function HomePage() {
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
-    loadEntries(currentCommunityId);
   };
 
   const startEditEntry = (entry) => {
@@ -675,7 +808,6 @@ export default function HomePage() {
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
     setEditEntryDateDraft("");
-    loadEntries(currentCommunityId);
   };
 
   const startEditComment = (comment) => {
@@ -703,7 +835,6 @@ export default function HomePage() {
     }
     setEditingCommentId(null);
     setEditCommentDraft("");
-    loadEntries(currentCommunityId);
   };
 
   const handleDeleteEntry = async (entryId) => {
@@ -715,7 +846,6 @@ export default function HomePage() {
       return;
     }
     setConfirmDeleteEntryId(null);
-    loadEntries(currentCommunityId);
   };
 
   const handleDeleteComment = async (commentId) => {
@@ -727,50 +857,74 @@ export default function HomePage() {
       return;
     }
     setConfirmDeleteCommentId(null);
-    loadEntries(currentCommunityId);
   };
 
-  // --- profile stats (derived from already-loaded entries, no extra queries) ---
-  const profileStats = useMemo(() => {
-    if (!profileTarget) return { count: 0 };
-    const theirEntries = entries.filter((e) => e.author_name === profileTarget);
-    const count = theirEntries.length;
-    if (count === 0) {
-      return { count: 0 };
+  // --- profile stats (via get_profile_stats RPC, called each time the modal opens) ---
+  useEffect(() => {
+    if (!profileTarget || !currentCommunityId) {
+      setProfileStats({ count: 0 });
+      return;
     }
-
-    const totalChars = theirEntries.reduce((sum, e) => sum + e.content.length, 0);
-    const avgChars = Math.round(totalChars / count);
-
-    const uniqueDates = Array.from(new Set(theirEntries.map((e) => e.entry_date))).sort();
-    const firstDate = uniqueDates[0];
-    const lastDate = uniqueDates[uniqueDates.length - 1];
-
-    let bestStreak = 1;
-    let run = 1;
-    for (let i = 1; i < uniqueDates.length; i++) {
-      const prev = new Date(uniqueDates[i - 1] + "T00:00:00");
-      const cur = new Date(uniqueDates[i] + "T00:00:00");
-      const diffDays = Math.round((cur - prev) / 86400000);
-      run = diffDays === 1 ? run + 1 : 1;
-      if (run > bestStreak) bestStreak = run;
+    const targetId =
+      profileTarget === myName
+        ? session?.user?.id
+        : communityMembers.find((m) => m.display_name === profileTarget)?.user_id;
+    if (!targetId) {
+      setProfileStats({ count: 0 });
+      return;
     }
+    let cancelled = false;
+    setProfileStatsLoading(true);
+    supabase
+      .rpc("get_profile_stats", { p_community_id: currentCommunityId, p_target_user_id: targetId })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setProfileStatsLoading(false);
+        const row = Array.isArray(data) ? data[0] : data;
+        if (error || !row || !row.post_count) {
+          setProfileStats({ count: 0 });
+          return;
+        }
 
-    const dateSet = new Set(uniqueDates);
-    const today = todayStr();
-    const yesterday = dateStrFromDate(new Date(Date.now() - 86400000));
-    let currentStreak = 0;
-    let cursorDate = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
-    if (cursorDate) {
-      let cursor = new Date(cursorDate + "T00:00:00");
-      while (dateSet.has(dateStrFromDate(cursor))) {
-        currentStreak += 1;
-        cursor = new Date(cursor.getTime() - 86400000);
-      }
-    }
+        const uniqueDates = Array.from(new Set(row.entry_dates || [])).sort();
 
-    return { count, totalChars, avgChars, firstDate, lastDate, currentStreak, bestStreak };
-  }, [entries, profileTarget]);
+        let bestStreak = 1;
+        let run = 1;
+        for (let i = 1; i < uniqueDates.length; i++) {
+          const prev = new Date(uniqueDates[i - 1] + "T00:00:00");
+          const cur = new Date(uniqueDates[i] + "T00:00:00");
+          const diffDays = Math.round((cur - prev) / 86400000);
+          run = diffDays === 1 ? run + 1 : 1;
+          if (run > bestStreak) bestStreak = run;
+        }
+
+        const dateSet = new Set(uniqueDates);
+        const today = todayStr();
+        const yesterday = dateStrFromDate(new Date(Date.now() - 86400000));
+        let currentStreak = 0;
+        let cursorDate = dateSet.has(today) ? today : dateSet.has(yesterday) ? yesterday : null;
+        if (cursorDate) {
+          let cursor = new Date(cursorDate + "T00:00:00");
+          while (dateSet.has(dateStrFromDate(cursor))) {
+            currentStreak += 1;
+            cursor = new Date(cursor.getTime() - 86400000);
+          }
+        }
+
+        setProfileStats({
+          count: row.post_count,
+          totalChars: row.total_chars,
+          avgChars: Math.round(row.avg_chars),
+          firstDate: row.first_date,
+          lastDate: row.last_date,
+          currentStreak,
+          bestStreak,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profileTarget, currentCommunityId, communityMembers, myName, session]);
 
   // --- grouping ---
   // Names of the current community's members (from community_members, not
@@ -782,13 +936,10 @@ export default function HomePage() {
       ),
     [communityMembers]
   );
-  const filteredEntries = entries.filter((e) => {
-    if (selectedAuthor && e.author_name !== selectedAuthor) return false;
-    if (selectedDate && e.entry_date !== selectedDate) return false;
-    return true;
-  });
+  // entries is already scoped to the current filters by the query itself
+  // (see fetchEntriesPage above), so no client-side filtering here.
   const groups = {};
-  filteredEntries.forEach((e) => {
+  entries.forEach((e) => {
     if (!groups[e.entry_date]) groups[e.entry_date] = [];
     groups[e.entry_date].push(e);
   });
@@ -1364,6 +1515,18 @@ export default function HomePage() {
             );
           })
         )}
+
+        {!entriesLoading && entries.length > 0 && (
+          <div ref={sentinelRef} className="konote-load-sentinel">
+            {loadingMore ? (
+              <p className="konote-loading-text" style={{ color: "var(--muted-text)" }}>
+                読み込み中…
+              </p>
+            ) : !hasMore ? (
+              <p className="konote-no-more-text">これ以上の投稿はありません</p>
+            ) : null}
+          </div>
+        )}
       </main>
 
       <button
@@ -1495,7 +1658,11 @@ export default function HomePage() {
               )}
             </div>
 
-            {profileStats.count === 0 ? (
+            {profileStatsLoading ? (
+              <p className="konote-loading-text" style={{ color: "var(--muted-text)" }}>
+                読み込み中…
+              </p>
+            ) : profileStats.count === 0 ? (
               <p className="konote-profile-empty">まだ投稿がありません。</p>
             ) : (
               <div className="konote-profile-stats">
