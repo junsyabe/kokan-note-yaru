@@ -1341,7 +1341,6 @@ export default function HomePage() {
                           value={editEntryDraft}
                           onChange={(e) => setEditEntryDraft(e.target.value)}
                           rows={4}
-                          maxLength={2000}
                         />
                         <input
                           type="date"
@@ -1572,7 +1571,6 @@ export default function HomePage() {
               onChange={(e) => setNewContent(e.target.value)}
               placeholder="今日はどんな一日だった？"
               rows={5}
-              maxLength={2000}
             />
             <label className="konote-field-label">投稿先コミュニティ</label>
             <div className="konote-community-checkbox-list">
