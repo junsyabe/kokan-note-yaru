@@ -418,6 +418,15 @@ body {
   margin: 0;
   font-size: 13px;
 }
+.konote-load-sentinel {
+  text-align: center;
+  padding: 18px 0 6px;
+}
+.konote-no-more-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-text);
+}
 
 /* ---- Date filter ---- */
 .konote-filter-wrap {

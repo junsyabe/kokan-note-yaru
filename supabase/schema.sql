@@ -333,3 +333,42 @@ begin
     alter publication supabase_realtime add table entry_communities;
   end if;
 end $$;
+
+-- The client now subscribes to comments INSERT/UPDATE/DELETE filtered by
+-- community_id (see app/page.js). Postgres only includes a deleted row's
+-- non-key columns in the WAL (and therefore in the DELETE event available
+-- to a column filter) when the table's replica identity is FULL; with the
+-- default (primary key only), a community_id filter would silently never
+-- match DELETE events on this table.
+alter table comments replica identity full;
+
+-- Returns per-user posting stats scoped to one community, used by the
+-- profile modal (supabase.rpc('get_profile_stats', ...)) instead of
+-- deriving them from whatever page of entries happens to be loaded
+-- client-side. entry_dates feeds the streak calculation, which stays on
+-- the client since it's cheap once you already have the distinct dates.
+create or replace function get_profile_stats(p_community_id uuid, p_target_user_id uuid)
+returns table (
+  post_count integer,
+  total_chars integer,
+  avg_chars integer,
+  first_date date,
+  last_date date,
+  entry_dates date[]
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    count(*)::int as post_count,
+    coalesce(sum(char_length(de.content)), 0)::int as total_chars,
+    coalesce(round(avg(char_length(de.content)))::int, 0) as avg_chars,
+    min(de.entry_date) as first_date,
+    max(de.entry_date) as last_date,
+    coalesce(array_agg(distinct de.entry_date), array[]::date[]) as entry_dates
+  from diary_entries de
+  join entry_communities ec on ec.entry_id = de.id
+  where ec.community_id = p_community_id and de.author_id = p_target_user_id;
+$$;
