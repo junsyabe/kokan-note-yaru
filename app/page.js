@@ -229,6 +229,8 @@ export default function HomePage() {
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushStatus, setPushStatus] = useState(null);
+  const [confirmResetPush, setConfirmResetPush] = useState(false);
+  const [resettingPush, setResettingPush] = useState(false);
 
   const [myCommunities, setMyCommunities] = useState([]);
   const [communitiesLoading, setCommunitiesLoading] = useState(true);
@@ -265,6 +267,7 @@ export default function HomePage() {
     setEditingName(false);
     setNameError(null);
     setPushStatus(null);
+    setConfirmResetPush(false);
   }, [profileTarget]);
 
   // --- communities ---
@@ -663,8 +666,10 @@ export default function HomePage() {
       });
   }, [session]);
 
-  const handleEnablePush = async () => {
-    setPushStatus(null);
+  // Shared by the initial opt-in and the reset flow below: registers the
+  // service worker, requests permission, subscribes, and upserts the row.
+  // Caller owns the busy flag; this only touches pushSubscribed/pushStatus.
+  const subscribeToPush = async () => {
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
     if (!isStandalone) {
@@ -679,12 +684,10 @@ export default function HomePage() {
       setPushStatus("通知の設定が未完了です(VAPID鍵が見つかりません)。");
       return;
     }
-    setPushBusy(true);
     try {
       const registration = await navigator.serviceWorker.register("/sw.js");
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
-        setPushBusy(false);
         setPushStatus("通知が許可されませんでした。");
         return;
       }
@@ -702,7 +705,6 @@ export default function HomePage() {
         },
         { onConflict: "endpoint" }
       );
-      setPushBusy(false);
       if (error) {
         setPushStatus(withDetail("通知の登録に失敗しました。", error));
         return;
@@ -710,9 +712,33 @@ export default function HomePage() {
       setPushSubscribed(true);
       setPushStatus("通知が有効になりました。");
     } catch (err) {
-      setPushBusy(false);
       setPushStatus(withDetail("通知の登録に失敗しました。", err));
     }
+  };
+
+  const handleEnablePush = async () => {
+    setPushStatus(null);
+    setPushBusy(true);
+    await subscribeToPush();
+    setPushBusy(false);
+  };
+
+  const handleResetPush = async () => {
+    setPushStatus(null);
+    setResettingPush(true);
+    const { error: deleteError } = await supabase
+      .from("push_subscriptions")
+      .delete()
+      .eq("user_id", session.user.id);
+    if (deleteError) {
+      setResettingPush(false);
+      setPushStatus(withDetail("通知設定のリセットに失敗しました。", deleteError));
+      return;
+    }
+    setPushSubscribed(false);
+    await subscribeToPush();
+    setResettingPush(false);
+    setConfirmResetPush(false);
   };
 
   // --- entry / comment actions ---
@@ -742,11 +768,29 @@ export default function HomePage() {
     const { error: linkError } = await supabase
       .from("entry_communities")
       .insert(postCommunityIds.map((communityId) => ({ entry_id: newEntryId, community_id: communityId })));
-    setPosting(false);
     if (linkError) {
+      setPosting(false);
       setErrorMsg(withDetail("コミュニティへの投稿の紐付けに失敗しました。", linkError));
       return;
     }
+    // Now that it's linked, the community-scoped SELECT policy allows
+    // reading it back — fetch the server-confirmed row (real created_at
+    // etc.) and drop it into the feed immediately, rather than waiting on
+    // the realtime event this insert will also trigger. That realtime
+    // handler dedupes on id, so this won't show up twice.
+    const matchesCurrentFilter =
+      postCommunityIds.includes(currentCommunityId) &&
+      (!selectedAuthorId || session.user.id === selectedAuthorId) &&
+      (!selectedDate || newDate === selectedDate);
+    if (matchesCurrentFilter) {
+      const { data: inserted } = await supabase.from("diary_entries").select("*").eq("id", newEntryId).single();
+      if (inserted) {
+        setEntries((prev) =>
+          prev.some((e) => e.id === inserted.id) ? prev : [{ ...inserted, comments: [] }, ...prev]
+        );
+      }
+    }
+    setPosting(false);
     setNewTitle("");
     setNewContent("");
     setNewDate(todayStr());
@@ -757,19 +801,32 @@ export default function HomePage() {
     const draft = (commentDrafts[entryId] || "").trim();
     if (!draft || !session || !currentCommunityId) return;
     setPostingComment((p) => ({ ...p, [entryId]: true }));
-    const { error } = await supabase.from("comments").insert({
-      entry_id: entryId,
-      author_id: session.user.id,
-      author_name: myName,
-      content: draft,
-      community_id: currentCommunityId,
-    });
+    const { data: inserted, error } = await supabase
+      .from("comments")
+      .insert({
+        entry_id: entryId,
+        author_id: session.user.id,
+        author_name: myName,
+        content: draft,
+        community_id: currentCommunityId,
+      })
+      .select()
+      .single();
     setPostingComment((p) => ({ ...p, [entryId]: false }));
     if (error) {
       setErrorMsg(withDetail("コメントの投稿に失敗しました。", error));
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
+    if (inserted) {
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entryId && !e.comments.some((c) => c.id === inserted.id)
+            ? { ...e, comments: [...e.comments, inserted] }
+            : e
+        )
+      );
+    }
   };
 
   const startEditEntry = (entry) => {
@@ -1719,14 +1776,46 @@ export default function HomePage() {
 
             {profileTarget === myName && (
               <>
-                <button
-                  type="button"
-                  className="konote-profile-notify-btn"
-                  onClick={handleEnablePush}
-                  disabled={pushBusy || pushSubscribed}
-                >
-                  {pushBusy ? "処理中…" : pushSubscribed ? "通知は有効です" : "通知を受け取る"}
-                </button>
+                {confirmResetPush ? (
+                  <div className="konote-delete-confirm">
+                    <p className="konote-delete-confirm-text">
+                      通知の登録をリセットしますか？うまく通知が届かない場合の対処法です。
+                    </p>
+                    <div className="konote-edit-actions">
+                      <button
+                        className="konote-edit-cancel"
+                        onClick={() => setConfirmResetPush(false)}
+                        disabled={resettingPush}
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        className="konote-delete-confirm-btn"
+                        onClick={handleResetPush}
+                        disabled={resettingPush}
+                      >
+                        {resettingPush ? "リセット中…" : "リセット"}
+                      </button>
+                    </div>
+                  </div>
+                ) : pushSubscribed ? (
+                  <button
+                    type="button"
+                    className="konote-profile-notify-btn"
+                    onClick={() => setConfirmResetPush(true)}
+                  >
+                    通知設定をリセットする
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="konote-profile-notify-btn"
+                    onClick={handleEnablePush}
+                    disabled={pushBusy}
+                  >
+                    {pushBusy ? "処理中…" : "通知を受け取る"}
+                  </button>
+                )}
                 {pushStatus && (
                   <p className="konote-error" style={pushSubscribed ? { color: "#2D6A93" } : undefined}>
                     {pushStatus}
