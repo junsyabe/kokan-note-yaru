@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 const AUTHOR_COLORS = ["#2D6A93", "#93445B", "#4C7A5D", "#8B5FA0", "#B9762F", "#3E6B6B"];
 const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const PAGE_SIZE = 10;
+const NEW_ENTRY_DRAFT_KEY = "draft:new-entry";
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -96,6 +97,33 @@ function todayStr() {
 
 function withDetail(message, err) {
   return err?.message ? `${message}（${err.message}）` : message;
+}
+
+// Draft autosave: best-effort, so a private-mode/quota failure just means
+// no draft persists rather than breaking the form.
+function loadDraft(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
+function clearDraft(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
 }
 
 function CommunityJoinCreateForm({
@@ -741,6 +769,55 @@ export default function HomePage() {
     setConfirmResetPush(false);
   };
 
+  // --- draft autosave ---
+  // New-entry draft: while the modal is open, persist title/content/date
+  // 0.5s after the last keystroke; an all-empty draft is cleared instead
+  // of written, so nothing lingers in localStorage forever.
+  useEffect(() => {
+    if (!showForm) return;
+    const timer = setTimeout(() => {
+      if (newTitle.trim() || newContent.trim()) {
+        saveDraft(NEW_ENTRY_DRAFT_KEY, { title: newTitle, content: newContent, date: newDate });
+      } else {
+        clearDraft(NEW_ENTRY_DRAFT_KEY);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [showForm, newTitle, newContent, newDate]);
+
+  // Comment drafts: restore any saved draft the first time an entry shows
+  // up locally (won't clobber whatever the user is actively typing).
+  useEffect(() => {
+    setCommentDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      entries.forEach((e) => {
+        if (next[e.id] === undefined) {
+          const saved = loadDraft(`draft:comment:${e.id}`);
+          if (saved && saved.trim()) {
+            next[e.id] = saved;
+            changed = true;
+          }
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [entries]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      Object.entries(commentDrafts).forEach(([entryId, text]) => {
+        const key = `draft:comment:${entryId}`;
+        if ((text || "").trim()) {
+          saveDraft(key, text);
+        } else {
+          clearDraft(key);
+        }
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [commentDrafts]);
+
   // --- entry / comment actions ---
   const handlePost = async () => {
     const trimmed = newContent.trim();
@@ -791,6 +868,7 @@ export default function HomePage() {
       }
     }
     setPosting(false);
+    clearDraft(NEW_ENTRY_DRAFT_KEY);
     setNewTitle("");
     setNewContent("");
     setNewDate(todayStr());
@@ -818,6 +896,7 @@ export default function HomePage() {
       return;
     }
     setCommentDrafts((d) => ({ ...d, [entryId]: "" }));
+    clearDraft(`draft:comment:${entryId}`);
     if (inserted) {
       setEntries((prev) =>
         prev.map((e) =>
@@ -1588,6 +1667,10 @@ export default function HomePage() {
       <button
         className="konote-fab"
         onClick={() => {
+          const draft = loadDraft(NEW_ENTRY_DRAFT_KEY);
+          setNewTitle(draft?.title || "");
+          setNewContent(draft?.content || "");
+          setNewDate(draft?.date || todayStr());
           setShowForm(true);
           setPostCommunityIds(currentCommunityId ? [currentCommunityId] : []);
         }}
