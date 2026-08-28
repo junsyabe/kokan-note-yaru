@@ -277,6 +277,9 @@ export default function HomePage() {
 
   const [postCommunityIds, setPostCommunityIds] = useState([]);
 
+  const [pendingJumpEntryId, setPendingJumpEntryId] = useState(null);
+  const [highlightEntryId, setHighlightEntryId] = useState(null);
+
   // --- auth bootstrap ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -385,6 +388,85 @@ export default function HomePage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, communitiesLoading]);
+
+  // --- push notification deep link (jump to a specific entry) ---
+  const jumpToEntry = useCallback(
+    (entryId, communityId) => {
+      if (!entryId) return;
+      if (communityId && communityId !== currentCommunityId && myCommunities.some((c) => c.id === communityId)) {
+        setCurrentCommunityId(communityId);
+      }
+      setSelectedAuthor(null);
+      setSelectedDate(null);
+      setPendingJumpEntryId(entryId);
+    },
+    [currentCommunityId, myCommunities]
+  );
+
+  // ?entry=ID&community=ID from a tapped push notification (a fresh tab
+  // opened by the service worker, or a direct link).
+  useEffect(() => {
+    if (!session || communitiesLoading) return;
+    const params = new URLSearchParams(window.location.search);
+    const entryParam = params.get("entry");
+    if (!entryParam) return;
+    jumpToEntry(entryParam, params.get("community"));
+    const url = new URL(window.location.href);
+    url.searchParams.delete("entry");
+    url.searchParams.delete("community");
+    window.history.replaceState({}, "", url.toString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, communitiesLoading]);
+
+  // Same notification tap, but the app was already open in this tab — the
+  // service worker posts the target here instead of doing a full navigation.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const handler = (event) => {
+      if (event.data?.type === "notification-click") {
+        jumpToEntry(event.data.entryId, event.data.communityId);
+      }
+    };
+    navigator.serviceWorker.addEventListener("message", handler);
+    return () => navigator.serviceWorker.removeEventListener("message", handler);
+  }, [jumpToEntry]);
+
+  // Once the target community's first page has loaded, make sure the
+  // entry is actually in `entries` (fetching it individually if it fell
+  // outside the loaded page), then scroll to it and flash a highlight.
+  useEffect(() => {
+    if (!pendingJumpEntryId || entriesLoading) return;
+    if (entries.some((e) => e.id === pendingJumpEntryId)) {
+      const el = document.getElementById(`konote-entry-${pendingJumpEntryId}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      setHighlightEntryId(pendingJumpEntryId);
+      const targetId = pendingJumpEntryId;
+      setTimeout(() => setHighlightEntryId((cur) => (cur === targetId ? null : cur)), 2000);
+      setPendingJumpEntryId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: entry } = await supabase.from("diary_entries").select("*").eq("id", pendingJumpEntryId).single();
+      if (cancelled) return;
+      if (!entry) {
+        setPendingJumpEntryId(null);
+        return;
+      }
+      const { data: comments } = await supabase
+        .from("comments")
+        .select("*")
+        .eq("entry_id", pendingJumpEntryId)
+        .order("created_at", { ascending: true });
+      if (cancelled) return;
+      setEntries((prev) =>
+        prev.some((e) => e.id === entry.id) ? prev : [...prev, { ...entry, comments: comments || [] }]
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingJumpEntryId, entries, entriesLoading]);
 
   // --- data loading (paginated) ---
   // Names -> ids for the currently-selected author filter (server-side
@@ -1388,7 +1470,11 @@ export default function HomePage() {
                   <span className="konote-stamp-weekday">({stamp.weekday})</span>
                 </div>
                 {groups[date].map((entry) => (
-                  <article className="konote-entry" key={entry.id}>
+                  <article
+                    className={`konote-entry ${highlightEntryId === entry.id ? "konote-entry-highlight" : ""}`}
+                    id={`konote-entry-${entry.id}`}
+                    key={entry.id}
+                  >
                     <span className="konote-entry-tab" style={{ background: colorForName(entry.author_name) }} />
                     <div className="konote-entry-head">
                       <button
