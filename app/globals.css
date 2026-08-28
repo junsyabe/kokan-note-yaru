@@ -565,6 +565,17 @@ body {
   margin: 0 0 14px 10px;
   box-shadow: 0 1px 3px rgba(59, 54, 44, 0.15);
 }
+.konote-entry-highlight {
+  animation: konote-entry-flash 2s ease-out;
+}
+@keyframes konote-entry-flash {
+  0% {
+    background: rgba(185, 133, 46, 0.35);
+  }
+  100% {
+    background: var(--card-bg);
+  }
+}
 .konote-entry-tab {
   position: absolute;
   left: -8px;
