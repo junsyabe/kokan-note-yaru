@@ -457,6 +457,7 @@ export default function HomePage() {
         .from("comments")
         .select("*")
         .eq("entry_id", pendingJumpEntryId)
+        .eq("community_id", currentCommunityId)
         .order("created_at", { ascending: true });
       if (cancelled) return;
       setEntries((prev) =>
@@ -466,7 +467,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [pendingJumpEntryId, entries, entriesLoading]);
+  }, [pendingJumpEntryId, entries, entriesLoading, currentCommunityId]);
 
   // --- data loading (paginated) ---
   // Names -> ids for the currently-selected author filter (server-side
@@ -492,10 +493,15 @@ export default function HomePage() {
     const ids = (entryRows || []).map((e) => e.id);
     let commentRows = [];
     if (ids.length > 0) {
+      // A single entry can be shared into several communities, so comments
+      // on it are scoped per-community too — without this filter, a
+      // comment left in community B would leak into community A's view of
+      // the same entry.
       const { data, error: commentErr } = await supabase
         .from("comments")
         .select("*")
         .in("entry_id", ids)
+        .eq("community_id", communityId)
         .order("created_at", { ascending: true });
       if (commentErr) throw commentErr;
       commentRows = data || [];
