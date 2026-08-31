@@ -76,11 +76,10 @@ function formatTime(entryDate, createdAtIso) {
   return `${formatDateStamp(entryDate).main} ${String(carriedHour).padStart(2, "0")}:${mm}`;
 }
 
-function formatCommentTime(iso, includeDate) {
+function formatCommentTime(iso) {
   const d = new Date(iso);
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
-  if (!includeDate) return `${hh}:${mm}`;
   return `${formatDateStamp(dateStrFromDate(d)).main} ${hh}:${mm}`;
 }
 
@@ -1622,25 +1621,14 @@ export default function HomePage() {
                                 {c.author_name}
                               </button>
                               {c.updated_at !== c.created_at ? (
-                                (() => {
-                                  const spansDates =
-                                    dateStrFromDate(new Date(c.created_at)) !==
-                                    dateStrFromDate(new Date(c.updated_at));
-                                  return (
-                                    <div className="konote-comment-time-block">
-                                      <span className="konote-comment-time">
-                                        {formatCommentTime(c.created_at, spansDates)}
-                                      </span>
-                                      <span className="konote-comment-time konote-time-edited">
-                                        編集 {formatCommentTime(c.updated_at, spansDates)}
-                                      </span>
-                                    </div>
-                                  );
-                                })()
+                                <div className="konote-comment-time-block">
+                                  <span className="konote-comment-time">{formatCommentTime(c.created_at)}</span>
+                                  <span className="konote-comment-time konote-time-edited">
+                                    編集 {formatCommentTime(c.updated_at)}
+                                  </span>
+                                </div>
                               ) : (
-                                <span className="konote-comment-time">
-                                  {formatCommentTime(c.created_at, false)}
-                                </span>
+                                <span className="konote-comment-time">{formatCommentTime(c.created_at)}</span>
                               )}
                             </div>
                             {confirmDeleteCommentId === c.id ? (
