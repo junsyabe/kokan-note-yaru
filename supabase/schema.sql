@@ -64,6 +64,16 @@ alter table comments add column if not exists community_id uuid references commu
 -- Once every existing row has been backfilled with a community_id, tighten this:
 -- alter table comments alter column community_id set not null;
 
+-- The original inline reference above had no ON DELETE clause, unlike
+-- entry_communities/community_members' community_id (both cascade). Without
+-- this, deleting a community (see the leave-community feature in
+-- app/page.js, which deletes the communities row once its last member
+-- leaves) fails with a foreign key violation as soon as any comment still
+-- references it.
+alter table comments drop constraint if exists comments_community_id_fkey;
+alter table comments add constraint comments_community_id_fkey
+  foreign key (community_id) references communities(id) on delete cascade;
+
 alter table diary_entries enable row level security;
 alter table comments enable row level security;
 alter table communities enable row level security;
@@ -171,6 +181,17 @@ create policy "read own memberships" on community_members
 drop policy if exists "update own membership" on community_members;
 create policy "update own membership" on community_members
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Leave-community feature: a member can remove their own membership row,
+-- and (used only once they're confirmed to be the last member) delete the
+-- community itself.
+drop policy if exists "delete own membership" on community_members;
+create policy "delete own membership" on community_members
+  for delete using (auth.uid() = user_id);
+
+drop policy if exists "delete own community" on communities;
+create policy "delete own community" on communities
+  for delete using ( is_community_member(communities.id) );
 
 drop policy if exists "read own entry_communities" on entry_communities;
 create policy "read own entry_communities" on entry_communities

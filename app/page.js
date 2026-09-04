@@ -264,6 +264,9 @@ export default function HomePage() {
   const [currentCommunityId, setCurrentCommunityId] = useState(null);
   const [communityMembers, setCommunityMembers] = useState([]);
   const [showMembersModal, setShowMembersModal] = useState(false);
+  const [confirmLeaveCommunity, setConfirmLeaveCommunity] = useState(false);
+  const [confirmLeaveLastMember, setConfirmLeaveLastMember] = useState(false);
+  const [leavingCommunity, setLeavingCommunity] = useState(false);
 
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState("");
@@ -299,6 +302,13 @@ export default function HomePage() {
     setPushStatus(null);
     setConfirmResetPush(false);
   }, [profileTarget]);
+
+  // Reset any in-progress "leave community" confirmation when the members
+  // modal is closed or reopened.
+  useEffect(() => {
+    setConfirmLeaveCommunity(false);
+    setConfirmLeaveLastMember(false);
+  }, [showMembersModal]);
 
   // --- communities ---
   const loadMyCommunities = useCallback(async () => {
@@ -373,6 +383,63 @@ export default function HomePage() {
     } catch (err) {
       // clipboard access can be blocked (permissions/non-secure context); nothing to do
     }
+  };
+
+  // Leaving a community: check membership count first, since the last
+  // member leaving needs an extra "this deletes the whole community"
+  // warning rather than a plain leave.
+  const handleConfirmLeaveCommunity = async () => {
+    if (!currentCommunityId) return;
+    setLeavingCommunity(true);
+    const { count, error: countError } = await supabase
+      .from("community_members")
+      .select("user_id", { count: "exact", head: true })
+      .eq("community_id", currentCommunityId);
+    if (countError) {
+      setLeavingCommunity(false);
+      setErrorMsg(withDetail("メンバー数の確認に失敗しました。", countError));
+      return;
+    }
+    if ((count || 0) > 1) {
+      await leaveCommunityNow(false);
+    } else {
+      setLeavingCommunity(false);
+      setConfirmLeaveLastMember(true);
+    }
+  };
+
+  const leaveCommunityNow = async (deleteCommunityToo) => {
+    if (!currentCommunityId) return;
+    setLeavingCommunity(true);
+    if (deleteCommunityToo) {
+      // Delete the community itself rather than the membership row first:
+      // community_members/entry_communities/comments all cascade from this,
+      // so there's no in-between moment where our own membership is already
+      // gone and a member-scoped RLS policy on `communities` would then
+      // reject the delete.
+      const { error: communityError } = await supabase.from("communities").delete().eq("id", currentCommunityId);
+      if (communityError) {
+        setLeavingCommunity(false);
+        setErrorMsg(withDetail("コミュニティの削除に失敗しました。", communityError));
+        return;
+      }
+    } else {
+      const { error: memberError } = await supabase
+        .from("community_members")
+        .delete()
+        .eq("community_id", currentCommunityId)
+        .eq("user_id", session.user.id);
+      if (memberError) {
+        setLeavingCommunity(false);
+        setErrorMsg(withDetail("コミュニティからの退出に失敗しました。", memberError));
+        return;
+      }
+    }
+    setLeavingCommunity(false);
+    setConfirmLeaveCommunity(false);
+    setConfirmLeaveLastMember(false);
+    setShowMembersModal(false);
+    await loadMyCommunities();
   };
 
   // Auto-join via a shared ?invite=CODE link, once communities have loaded.
@@ -2076,6 +2143,63 @@ export default function HomePage() {
                     コピー
                   </button>
                 </div>
+
+                {confirmLeaveLastMember ? (
+                  <div className="konote-delete-confirm">
+                    <p className="konote-delete-confirm-text">
+                      あなたはこのコミュニティの最後の1人です。このまま抜けるとコミュニティ自体と、中の日記・コメントがすべて削除されます。本当によろしいですか？
+                    </p>
+                    <div className="konote-edit-actions">
+                      <button
+                        className="konote-edit-cancel"
+                        onClick={() => {
+                          setConfirmLeaveLastMember(false);
+                          setConfirmLeaveCommunity(false);
+                        }}
+                        disabled={leavingCommunity}
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        className="konote-delete-confirm-btn"
+                        onClick={() => leaveCommunityNow(true)}
+                        disabled={leavingCommunity}
+                      >
+                        {leavingCommunity ? "処理中…" : "削除して抜ける"}
+                      </button>
+                    </div>
+                  </div>
+                ) : confirmLeaveCommunity ? (
+                  <div className="konote-delete-confirm">
+                    <p className="konote-delete-confirm-text">
+                      本当に「{currentCommunity.name}」から抜けますか？
+                    </p>
+                    <div className="konote-edit-actions">
+                      <button
+                        className="konote-edit-cancel"
+                        onClick={() => setConfirmLeaveCommunity(false)}
+                        disabled={leavingCommunity}
+                      >
+                        キャンセル
+                      </button>
+                      <button
+                        className="konote-delete-confirm-btn"
+                        onClick={handleConfirmLeaveCommunity}
+                        disabled={leavingCommunity}
+                      >
+                        {leavingCommunity ? "確認中…" : "抜ける"}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="konote-profile-logout"
+                    onClick={() => setConfirmLeaveCommunity(true)}
+                  >
+                    このコミュニティから抜ける
+                  </button>
+                )}
               </div>
             </div>
           );
