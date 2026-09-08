@@ -1379,7 +1379,7 @@ export default function HomePage() {
 
   // --- render: signed in (diary feed) ---
   return (
-    <div className="konote-app">
+    <div className="konote-app konote-app-feed">
       <header className="konote-header">
         <div className="konote-ribbon" />
         <div className="konote-header-top">

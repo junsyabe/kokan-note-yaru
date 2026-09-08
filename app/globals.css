@@ -33,6 +33,25 @@ body {
   position: relative;
   color: var(--ink-text);
 }
+/* The signed-in feed screen is the one with a fixed FAB, so it's the one
+   that needs the document itself to never scroll — iOS Safari can visibly
+   detach position:fixed elements from the viewport while the whole page
+   scrolls (most noticeably during the URL bar's show/hide animation).
+   Capping this wrapper to the viewport height and letting .konote-page
+   scroll internally instead keeps the viewport (and therefore the fixed
+   FAB) perfectly still. Scoped to this modifier class rather than
+   .konote-app generally, since the onboarding/loading screens have no
+   inner scroll region of their own and would just clip if capped the
+   same way. */
+.konote-app-feed {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.konote-app-feed .konote-page {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .konote-app button,
 .konote-app input,
 .konote-app textarea {
@@ -912,6 +931,12 @@ body {
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   z-index: 20;
+  font-size: 26px;
+  line-height: 1;
+  /* Forces its own compositing layer so iOS Safari doesn't let it lag
+     behind during momentum-scroll of the page underneath it. */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
 }
 
 /* ---- Modal ---- */
