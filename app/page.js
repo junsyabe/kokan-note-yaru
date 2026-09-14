@@ -1637,13 +1637,14 @@ export default function HomePage() {
                   const isExpanded = expandedEntryIds.has(entry.id);
                   return (
                   <Fragment key={entry.id}>
-                    {isListMode && (
+                    {isListMode && !isExpanded ? (
                       <button
                         type="button"
                         className="konote-list-row"
                         onClick={() => toggleExpandEntry(entry)}
                         disabled={expandingEntryId === entry.id}
                       >
+                        <span className="konote-list-tab" style={{ background: colorForName(entry.author_name) }} />
                         <span className="konote-list-date">{formatDateStamp(entry.entry_date).main}</span>
                         <span className="konote-list-label">
                           {expandingEntryId === entry.id ? "読み込み中…" : listRowLabel(entry)}
@@ -1655,8 +1656,7 @@ export default function HomePage() {
                           {entry.author_name.charAt(0)}
                         </span>
                       </button>
-                    )}
-                    {(!isListMode || isExpanded) && (
+                    ) : (
                   <article
                     className={`konote-entry ${highlightEntryId === entry.id ? "konote-entry-highlight" : ""}`}
                     id={`konote-entry-${entry.id}`}
@@ -1713,6 +1713,17 @@ export default function HomePage() {
                             </button>
                           </>
                         )}
+                      {isListMode && (
+                        <button
+                          type="button"
+                          className="konote-collapse-btn"
+                          onClick={() => toggleExpandEntry(entry)}
+                          aria-label="折りたたむ"
+                          title="折りたたむ"
+                        >
+                          ▲
+                        </button>
+                      )}
                     </div>
                     {confirmDeleteEntryId === entry.id ? (
                       <div className="konote-delete-confirm">
