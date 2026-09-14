@@ -393,3 +393,44 @@ as $$
   join entry_communities ec on ec.entry_id = de.id
   where ec.community_id = p_community_id and de.author_id = p_target_user_id;
 $$;
+
+-- Lightweight, paginated page of entries for the filtered "list mode" view
+-- (see isListMode in app/page.js): while a friend/date filter is active,
+-- the feed shows one line per entry instead of the full card, so there's
+-- no need to fetch comments or the (now-unbounded) content column over the
+-- wire — content_preview is a short server-side truncation, used only as a
+-- fallback label when an entry has no title.
+create or replace function get_entry_list_page(
+  p_community_id uuid,
+  p_author_id uuid default null,
+  p_entry_date date default null,
+  p_cursor timestamptz default null,
+  p_limit integer default 10
+)
+returns table (
+  id uuid,
+  entry_date date,
+  title text,
+  content_preview text,
+  author_name text,
+  author_id uuid,
+  created_at timestamptz
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select de.id, de.entry_date, de.title,
+         left(de.content, 20) as content_preview,
+         de.author_name, de.author_id, de.created_at
+  from diary_entries de
+  join entry_communities ec on ec.entry_id = de.id
+  where ec.community_id = p_community_id
+    and is_community_member(p_community_id)
+    and (p_author_id is null or de.author_id = p_author_id)
+    and (p_entry_date is null or de.entry_date = p_entry_date)
+    and (p_cursor is null or de.created_at < p_cursor)
+  order by de.created_at desc
+  limit p_limit;
+$$;

@@ -584,6 +584,54 @@ body {
   margin: 0 0 14px 10px;
   box-shadow: 0 1px 3px rgba(59, 54, 44, 0.15);
 }
+.konote-list-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: var(--card-bg);
+  border: none;
+  border-radius: 4px 10px 10px 4px;
+  padding: 14px 16px 14px 20px;
+  margin: 0 0 10px 10px;
+  box-shadow: 0 1px 3px rgba(59, 54, 44, 0.15);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+}
+.konote-list-row:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.konote-list-tab {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 20px;
+  border-radius: 3px;
+}
+.konote-list-date {
+  flex-shrink: 0;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--kon-peki);
+}
+.konote-list-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.konote-list-avatar {
+  margin-left: auto;
+}
 .konote-entry-highlight {
   animation: konote-entry-flash 2s ease-out;
 }
@@ -691,6 +739,22 @@ body {
   line-height: 1;
 }
 .konote-edit-btn:hover {
+  color: var(--kon-peki);
+}
+.konote-collapse-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+.konote-collapse-btn:hover {
   color: var(--kon-peki);
 }
 .konote-edit-btn-sm {
