@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 const AUTHOR_COLORS = ["#2D6A93", "#93445B", "#4C7A5D", "#8B5FA0", "#B9762F", "#3E6B6B"];
@@ -45,6 +45,16 @@ function formatDateStampWithYear(dateStr) {
   const y = d.getFullYear();
   const wd = WEEKDAY_KANJI[d.getDay()];
   return { main: `${y}/${d.getMonth() + 1}/${d.getDate()}`, weekday: wd };
+}
+
+// List-mode row label: title if there is one, otherwise a short snippet of
+// the body. content_preview comes from the lightweight RPC fetch (already
+// server-truncated); content is whatever we may already have client-side
+// (e.g. after this entry was previously expanded).
+function listRowLabel(entry) {
+  if (entry.title) return entry.title;
+  const source = entry.content_preview || entry.content || "";
+  return source.slice(0, 15);
 }
 
 function stampRotation(dateStr) {
@@ -214,6 +224,8 @@ export default function HomePage() {
   const [entriesLoading, setEntriesLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
+  const [expandedEntryIds, setExpandedEntryIds] = useState(() => new Set());
+  const [expandingEntryId, setExpandingEntryId] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedAuthor, setSelectedAuthor] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -544,6 +556,27 @@ export default function HomePage() {
     return communityMembers.find((m) => m.display_name === selectedAuthor)?.user_id || null;
   }, [selectedAuthor, communityMembers]);
 
+  // While a friend or date filter is active, the feed switches to a
+  // lightweight one-line-per-entry list (see fetchEntriesPageLite) instead
+  // of the full card feed, to cut down on data transferred for a filtered
+  // browse.
+  const isListMode = Boolean(selectedAuthorId || selectedDate);
+
+  // Lightweight page fetch for list mode: no comments, and no raw `content`
+  // (which has no length cap) — just a short server-truncated preview via
+  // the get_entry_list_page RPC, for entries that don't have a title.
+  const fetchEntriesPageLite = useCallback(async (communityId, authorId, entryDate, cursor) => {
+    const { data, error } = await supabase.rpc("get_entry_list_page", {
+      p_community_id: communityId,
+      p_author_id: authorId || null,
+      p_entry_date: entryDate || null,
+      p_cursor: cursor || null,
+      p_limit: PAGE_SIZE,
+    });
+    if (error) throw error;
+    return (data || []).map((e) => ({ ...e, comments: [], lite: true }));
+  }, []);
+
   const fetchEntriesPage = useCallback(async (communityId, authorId, entryDate, cursor) => {
     let query = supabase
       .from("diary_entries")
@@ -590,7 +623,11 @@ export default function HomePage() {
     }
     let cancelled = false;
     setEntriesLoading(true);
-    fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null)
+    setExpandedEntryIds(new Set());
+    const fetchFirstPage = isListMode
+      ? fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, null)
+      : fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null);
+    fetchFirstPage
       .then((rows) => {
         if (cancelled) return;
         setEntries(rows);
@@ -607,21 +644,76 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [session, currentCommunityId, selectedAuthorId, selectedDate, fetchEntriesPage]);
+  }, [session, currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
 
   const loadMoreEntries = useCallback(async () => {
     if (loadingMore || !hasMore || !currentCommunityId || entries.length === 0) return;
     setLoadingMore(true);
     const cursor = entries[entries.length - 1].created_at;
     try {
-      const rows = await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, cursor);
+      const rows = isListMode
+        ? await fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, cursor)
+        : await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, cursor);
       setEntries((prev) => [...prev, ...rows]);
       setHasMore(rows.length === PAGE_SIZE);
     } catch (err) {
       setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
     }
     setLoadingMore(false);
-  }, [loadingMore, hasMore, currentCommunityId, entries, selectedAuthorId, selectedDate, fetchEntriesPage]);
+  }, [
+    loadingMore,
+    hasMore,
+    currentCommunityId,
+    entries,
+    selectedAuthorId,
+    selectedDate,
+    isListMode,
+    fetchEntriesPage,
+    fetchEntriesPageLite,
+  ]);
+
+  // List-mode row tap: fetch the full entry (content + comments) the first
+  // time it's expanded, then just toggle visibility from then on.
+  const toggleExpandEntry = async (entry) => {
+    if (expandedEntryIds.has(entry.id)) {
+      setExpandedEntryIds((prev) => {
+        const next = new Set(prev);
+        next.delete(entry.id);
+        return next;
+      });
+      return;
+    }
+    if (!entry.lite) {
+      setExpandedEntryIds((prev) => new Set(prev).add(entry.id));
+      return;
+    }
+    setExpandingEntryId(entry.id);
+    const { data: full, error: entryErr } = await supabase
+      .from("diary_entries")
+      .select("*")
+      .eq("id", entry.id)
+      .single();
+    if (entryErr || !full) {
+      setExpandingEntryId(null);
+      setErrorMsg(withDetail("日記の読み込みに失敗しました。", entryErr));
+      return;
+    }
+    const { data: comments, error: commentErr } = await supabase
+      .from("comments")
+      .select("*")
+      .eq("entry_id", entry.id)
+      .eq("community_id", currentCommunityId)
+      .order("created_at", { ascending: true });
+    setExpandingEntryId(null);
+    if (commentErr) {
+      setErrorMsg(withDetail("コメントの読み込みに失敗しました。", commentErr));
+      return;
+    }
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entry.id ? { ...e, ...full, comments: comments || [], lite: false } : e))
+    );
+    setExpandedEntryIds((prev) => new Set(prev).add(entry.id));
+  };
 
   // Infinite scroll: observe a sentinel at the bottom of the list.
   const sentinelRef = useRef(null);
@@ -1541,11 +1633,33 @@ export default function HomePage() {
                   <span className="konote-stamp-date">{stamp.main}</span>
                   <span className="konote-stamp-weekday">({stamp.weekday})</span>
                 </div>
-                {groups[date].map((entry) => (
+                {groups[date].map((entry) => {
+                  const isExpanded = expandedEntryIds.has(entry.id);
+                  return (
+                  <Fragment key={entry.id}>
+                    {isListMode && (
+                      <button
+                        type="button"
+                        className="konote-list-row"
+                        onClick={() => toggleExpandEntry(entry)}
+                        disabled={expandingEntryId === entry.id}
+                      >
+                        <span className="konote-list-date">{formatDateStamp(entry.entry_date).main}</span>
+                        <span className="konote-list-label">
+                          {expandingEntryId === entry.id ? "読み込み中…" : listRowLabel(entry)}
+                        </span>
+                        <span
+                          className="konote-avatar konote-list-avatar"
+                          style={{ background: colorForName(entry.author_name) }}
+                        >
+                          {entry.author_name.charAt(0)}
+                        </span>
+                      </button>
+                    )}
+                    {(!isListMode || isExpanded) && (
                   <article
                     className={`konote-entry ${highlightEntryId === entry.id ? "konote-entry-highlight" : ""}`}
                     id={`konote-entry-${entry.id}`}
-                    key={entry.id}
                   >
                     <span className="konote-entry-tab" style={{ background: colorForName(entry.author_name) }} />
                     <div className="konote-entry-head">
@@ -1792,7 +1906,10 @@ export default function HomePage() {
                       </div>
                     </div>
                   </article>
-                ))}
+                    )}
+                  </Fragment>
+                  );
+                })}
               </section>
             );
           })
