@@ -551,6 +551,9 @@ body {
 .konote-date-group {
   margin-bottom: 30px;
 }
+.konote-date-group-flat {
+  margin-bottom: 0;
+}
 .konote-date-stamp {
   display: inline-flex;
   align-items: baseline;

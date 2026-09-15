@@ -1625,14 +1625,16 @@ export default function HomePage() {
           sortedDates.map((date) => {
             const stamp = formatDateStamp(date);
             return (
-              <section key={date} className="konote-date-group">
-                <div
-                  className="konote-date-stamp"
-                  style={{ transform: `rotate(${stampRotation(date)}deg)` }}
-                >
-                  <span className="konote-stamp-date">{stamp.main}</span>
-                  <span className="konote-stamp-weekday">({stamp.weekday})</span>
-                </div>
+              <section key={date} className={`konote-date-group ${isListMode ? "konote-date-group-flat" : ""}`}>
+                {!isListMode && (
+                  <div
+                    className="konote-date-stamp"
+                    style={{ transform: `rotate(${stampRotation(date)}deg)` }}
+                  >
+                    <span className="konote-stamp-date">{stamp.main}</span>
+                    <span className="konote-stamp-weekday">({stamp.weekday})</span>
+                  </div>
+                )}
                 {groups[date].map((entry) => {
                   const isExpanded = expandedEntryIds.has(entry.id);
                   return (
