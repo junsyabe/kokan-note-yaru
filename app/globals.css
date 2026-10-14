@@ -1005,6 +1005,32 @@ body {
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
 }
+.konote-scroll-top-btn {
+  position: fixed;
+  /* Stacked directly above the FAB (54px + 12px gap) so both stay fully
+     visible and tappable even on narrow phone widths. */
+  bottom: 90px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  color: var(--kon-peki);
+  border: 1px solid rgba(45, 106, 147, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+  font-size: 18px;
+  line-height: 1;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+.konote-scroll-top-btn:hover {
+  background: rgba(45, 106, 147, 0.08);
+}
 
 /* ---- Modal ---- */
 .konote-modal-backdrop {
