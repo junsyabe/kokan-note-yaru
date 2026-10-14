@@ -730,6 +730,26 @@ export default function HomePage() {
     return () => observer.disconnect();
   }, [loadMoreEntries]);
 
+  // "Scroll to top" button: the feed scrolls inside .konote-page (not the
+  // window — see konote-app-feed in globals.css), so a plain useRef+[]
+  // effect would miss the element if this component's first render lands
+  // on a different screen (loading/onboarding) before the feed mounts. A
+  // callback ref re-fires this effect exactly when the node actually
+  // attaches, whenever that happens to be.
+  const [pageEl, setPageEl] = useState(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  useEffect(() => {
+    if (!pageEl) return;
+    const handleScroll = () => setShowScrollTop(pageEl.scrollTop > 400);
+    handleScroll();
+    pageEl.addEventListener("scroll", handleScroll, { passive: true });
+    return () => pageEl.removeEventListener("scroll", handleScroll);
+  }, [pageEl]);
+
+  const scrollToTop = () => {
+    pageEl?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   // --- realtime: apply just the changed row instead of refetching everything ---
   // Filters can change without tearing this down; the handlers below read
   // the latest filter values via refs so a stale closure can't apply an
@@ -1534,7 +1554,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="konote-page">
+      <main className="konote-page" ref={setPageEl}>
         {errorMsg && <div className="konote-error-banner">{errorMsg}</div>}
 
         {!entriesLoading && communityMemberNames.length > 0 && (
@@ -1940,6 +1960,18 @@ export default function HomePage() {
           </div>
         )}
       </main>
+
+      {showScrollTop && (
+        <button
+          type="button"
+          className="konote-scroll-top-btn"
+          onClick={scrollToTop}
+          aria-label="ページの一番上に戻る"
+          title="ページの一番上に戻る"
+        >
+          ↑
+        </button>
+      )}
 
       <button
         className="konote-fab"
