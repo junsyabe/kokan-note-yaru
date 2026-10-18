@@ -1657,6 +1657,7 @@ export default function HomePage() {
                 )}
                 {groups[date].map((entry) => {
                   const isExpanded = expandedEntryIds.has(entry.id);
+                  const isRairaitei = typeof entry.content === "string" && entry.content.includes("来来亭");
                   return (
                   <Fragment key={entry.id}>
                     {isListMode && !isExpanded ? (
@@ -1688,11 +1689,15 @@ export default function HomePage() {
                       <button
                         type="button"
                         className="konote-avatar konote-tap-avatar"
-                        style={{ background: colorForName(entry.author_name) }}
+                        style={isRairaitei ? undefined : { background: colorForName(entry.author_name) }}
                         onClick={() => setProfileTarget(entry.author_name)}
                         aria-label={`${entry.author_name}さんのプロフィールを見る`}
                       >
-                        {entry.author_name.charAt(0)}
+                        {isRairaitei ? (
+                          <img src="/icons/rairaitei.png" alt="" className="konote-rairaitei-avatar" />
+                        ) : (
+                          entry.author_name.charAt(0)
+                        )}
                       </button>
                       <button
                         type="button"
