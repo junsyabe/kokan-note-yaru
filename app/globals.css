@@ -666,6 +666,12 @@ body {
   height: 24px;
   font-size: 11px;
 }
+.konote-rairaitei-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
 .konote-entry-author {
   font-family: var(--font-sans);
   font-weight: 700;
