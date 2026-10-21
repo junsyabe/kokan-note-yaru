@@ -57,6 +57,22 @@ function listRowLabel(entry) {
   return source.slice(0, 15);
 }
 
+// Simple relative time for the notifications list — doesn't need to be
+// exact, just a quick sense of how long ago.
+function formatRelativeTime(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "たった今";
+  if (diffMin < 60) return `${diffMin}分前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}時間前`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}日前`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}ヶ月前`;
+  return `${Math.floor(diffMonth / 12)}年前`;
+}
+
 function stampRotation(dateStr) {
   let h = 0;
   for (let i = 0; i < dateStr.length; i++) h = (h * 31 + dateStr.charCodeAt(i)) % 7;
@@ -276,6 +292,10 @@ export default function HomePage() {
   const [currentCommunityId, setCurrentCommunityId] = useState(null);
   const [communityMembers, setCommunityMembers] = useState([]);
   const [showMembersModal, setShowMembersModal] = useState(false);
+  const [showNotificationsModal, setShowNotificationsModal] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [confirmLeaveCommunity, setConfirmLeaveCommunity] = useState(false);
   const [confirmLeaveLastMember, setConfirmLeaveLastMember] = useState(false);
   const [leavingCommunity, setLeavingCommunity] = useState(false);
@@ -546,6 +566,70 @@ export default function HomePage() {
       cancelled = true;
     };
   }, [pendingJumpEntryId, entries, entriesLoading, currentCommunityId]);
+
+  // --- in-app notifications (bell icon + modal) ---
+  useEffect(() => {
+    if (!session) return;
+    supabase
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", session.user.id)
+      .is("read_at", null)
+      .then(({ count, error }) => {
+        if (!error) setUnreadNotificationCount(count || 0);
+      });
+  }, [session]);
+
+  // New notifications bump the badge immediately; the modal re-fetches its
+  // own list fresh each time it's opened, so there's nothing else to sync.
+  useEffect(() => {
+    if (!session) return;
+    const channel = supabase
+      .channel(`notifications-${session.user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${session.user.id}`,
+        },
+        () => setUnreadNotificationCount((c) => c + 1)
+      )
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [session]);
+
+  const handleOpenNotifications = async () => {
+    setShowNotificationsModal(true);
+    setNotificationsLoading(true);
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setNotificationsLoading(false);
+    if (error) {
+      setErrorMsg(withDetail("通知の読み込みに失敗しました。", error));
+      return;
+    }
+    setNotifications(data || []);
+    const unreadIds = (data || []).filter((n) => !n.read_at).map((n) => n.id);
+    if (unreadIds.length > 0) {
+      const now = new Date().toISOString();
+      const { error: readError } = await supabase.from("notifications").update({ read_at: now }).in("id", unreadIds);
+      if (!readError) {
+        setUnreadNotificationCount(0);
+        setNotifications((prev) => prev.map((n) => (unreadIds.includes(n.id) ? { ...n, read_at: now } : n)));
+      }
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    setShowNotificationsModal(false);
+    jumpToEntry(notification.entry_id, notification.community_id);
+  };
 
   // --- data loading (paginated) ---
   // Names -> ids for the currently-selected author filter (server-side
@@ -1494,6 +1578,16 @@ export default function HomePage() {
     <div className="konote-app konote-app-feed">
       <header className="konote-header">
         <div className="konote-ribbon" />
+        <button
+          type="button"
+          className="konote-header-bell-btn konote-bell-btn"
+          onClick={handleOpenNotifications}
+          aria-label="通知"
+          title="通知"
+        >
+          🔔
+          {unreadNotificationCount > 0 && <span className="konote-bell-badge" />}
+        </button>
         <div className="konote-header-top">
           <div>
             <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
@@ -2254,6 +2348,56 @@ export default function HomePage() {
               createdInfo={createdInfo}
               onCopy={handleCopyText}
             />
+          </div>
+        </div>
+      )}
+
+      {showNotificationsModal && (
+        <div className="konote-modal-backdrop" onClick={() => setShowNotificationsModal(false)}>
+          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="konote-modal-head">
+              <h2>通知</h2>
+              <button
+                className="konote-modal-close"
+                onClick={() => setShowNotificationsModal(false)}
+                aria-label="閉じる"
+              >
+                ✕
+              </button>
+            </div>
+
+            {notificationsLoading ? (
+              <p className="konote-loading-text" style={{ color: "var(--muted-text)" }}>
+                読み込み中…
+              </p>
+            ) : notifications.length === 0 ? (
+              <div className="konote-empty">
+                <p>まだ通知はありません。</p>
+              </div>
+            ) : (
+              <div className="konote-notification-list">
+                {notifications.map((n) => (
+                  <button
+                    type="button"
+                    key={n.id}
+                    className="konote-notification-row"
+                    onClick={() => handleNotificationClick(n)}
+                  >
+                    <span
+                      className="konote-avatar"
+                      style={{ background: colorForName(n.actor_name) }}
+                    >
+                      {(n.actor_name || "?").charAt(0)}
+                    </span>
+                    <div className="konote-notification-text">
+                      <p className="konote-notification-title">{n.title}</p>
+                      {n.body && <p className="konote-notification-body">{n.body}</p>}
+                    </div>
+                    <span className="konote-notification-time">{formatRelativeTime(n.created_at)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

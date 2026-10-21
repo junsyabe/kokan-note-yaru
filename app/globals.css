@@ -308,6 +308,36 @@ body {
   font-size: 16px;
   flex-shrink: 0;
 }
+.konote-bell-btn {
+  position: relative;
+}
+.konote-header-bell-btn {
+  position: absolute;
+  top: 62px;
+  right: 3px;
+  z-index: 1;
+  border: none;
+  background: transparent;
+  color: var(--cream);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 32px;
+  flex-shrink: 0;
+}
+.konote-bell-badge {
+  position: absolute;
+  top: 6px;
+  right: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--wine);
+  border: 1.5px solid var(--ink-navy);
+}
 
 /* ---- Community join/create form ---- */
 .konote-community-form {
@@ -398,6 +428,55 @@ body {
   font-size: 13px;
   font-weight: 700;
   color: var(--ink-text);
+}
+
+/* ---- Notifications ---- */
+.konote-notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 4px -6px 0;
+}
+.konote-notification-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 10px 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+}
+.konote-notification-row:hover {
+  background: rgba(59, 54, 44, 0.06);
+}
+.konote-notification-text {
+  flex: 1;
+  min-width: 0;
+}
+.konote-notification-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-text);
+}
+.konote-notification-body {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted-text);
+  white-space: pre-wrap;
+}
+.konote-notification-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted-text);
+  white-space: nowrap;
+  margin-top: 2px;
 }
 
 /* ---- Page / content ---- */
