@@ -313,27 +313,27 @@ body {
 }
 .konote-header-bell-btn {
   position: absolute;
-  top: 60px;
-  right: 2px;
+  top: 62px;
+  right: 3px;
   z-index: 1;
   border: none;
   background: transparent;
   color: var(--cream);
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 40px;
+  font-size: 32px;
   flex-shrink: 0;
 }
 .konote-bell-badge {
   position: absolute;
-  top: 8px;
-  right: 6px;
-  width: 11px;
-  height: 11px;
+  top: 6px;
+  right: 5px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--wine);
   border: 1.5px solid var(--ink-navy);
