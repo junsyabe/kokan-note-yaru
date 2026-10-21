@@ -353,6 +353,13 @@ begin
   ) then
     alter publication supabase_realtime add table entry_communities;
   end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and tablename = 'notifications'
+  ) then
+    alter publication supabase_realtime add table notifications;
+  end if;
 end $$;
 
 -- The client now subscribes to comments INSERT/UPDATE/DELETE filtered by
@@ -434,3 +441,20 @@ as $$
   order by de.created_at desc
   limit p_limit;
 $$;
+
+-- In-app notifications (bell icon + modal in app/page.js). The table
+-- itself (id, user_id, actor_name, type, entry_id, community_id, title,
+-- body, created_at, read_at) was already created on the Supabase side;
+-- this just documents the RLS a client needs to read its own notifications
+-- and mark them read. Rows are written by whatever server-side process
+-- (trigger/Edge Function) already generates them — there is no INSERT
+-- policy here on purpose, since the client never creates its own.
+alter table notifications enable row level security;
+
+drop policy if exists "read own notifications" on notifications;
+create policy "read own notifications" on notifications
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "update own notifications" on notifications;
+create policy "update own notifications" on notifications
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
