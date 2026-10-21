@@ -1578,6 +1578,16 @@ export default function HomePage() {
     <div className="konote-app konote-app-feed">
       <header className="konote-header">
         <div className="konote-ribbon" />
+        <button
+          type="button"
+          className="konote-header-bell-btn konote-bell-btn"
+          onClick={handleOpenNotifications}
+          aria-label="通知"
+          title="通知"
+        >
+          🔔
+          {unreadNotificationCount > 0 && <span className="konote-bell-badge" />}
+        </button>
         <div className="konote-header-top">
           <div>
             <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
@@ -1620,16 +1630,6 @@ export default function HomePage() {
               title="コミュニティに参加または作成"
             >
               +
-            </button>
-            <button
-              type="button"
-              className="konote-community-add-btn konote-bell-btn"
-              onClick={handleOpenNotifications}
-              aria-label="通知"
-              title="通知"
-            >
-              🔔
-              {unreadNotificationCount > 0 && <span className="konote-bell-badge" />}
             </button>
           </div>
         </div>
