@@ -193,6 +193,12 @@ drop policy if exists "delete own community" on communities;
 create policy "delete own community" on communities
   for delete using ( is_community_member(communities.id) );
 
+-- Lets any member rename the community (used by the community-name edit
+-- feature in the members modal).
+drop policy if exists "update own community" on communities;
+create policy "update own community" on communities
+  for update using ( is_community_member(communities.id) ) with check ( is_community_member(communities.id) );
+
 drop policy if exists "read own entry_communities" on entry_communities;
 create policy "read own entry_communities" on entry_communities
   for select using ( is_community_member(entry_communities.community_id) );

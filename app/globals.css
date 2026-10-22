@@ -5,9 +5,8 @@
 }
 
 :root {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN",
-    "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP",
-    sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
 }
 
 body {
@@ -100,7 +99,7 @@ body {
   right: 4px;
 }
 .konote-eyebrow {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-size: 10px;
   letter-spacing: 0.18em;
   color: var(--gold);
@@ -646,7 +645,7 @@ body {
   margin-bottom: 14px;
 }
 .konote-stamp-date {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.03em;
@@ -697,7 +696,7 @@ body {
 }
 .konote-list-date {
   flex-shrink: 0;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 700;
   color: var(--kon-peki);
@@ -781,7 +780,7 @@ body {
   text-decoration: underline;
 }
 .konote-entry-time {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-size: 11px;
   color: var(--muted-text);
   white-space: nowrap;
@@ -1001,7 +1000,7 @@ body {
   gap: 8px;
 }
 .konote-comment-time {
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-size: 10px;
   color: var(--muted-text);
   white-space: nowrap;
@@ -1060,7 +1059,7 @@ body {
 }
 .konote-sync-note {
   text-align: center;
-  font-family: "JetBrains Mono", monospace;
+  font-family: var(--font-sans);
   font-size: 10px;
   color: var(--muted-text);
   margin-top: 20px;
@@ -1147,6 +1146,17 @@ body {
   font-size: 17px;
   margin: 0;
   color: var(--ink-text);
+}
+.konote-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.konote-modal-title-row h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .konote-modal-close {
   border: none;

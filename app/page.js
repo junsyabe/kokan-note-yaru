@@ -299,6 +299,10 @@ export default function HomePage() {
   const [confirmLeaveCommunity, setConfirmLeaveCommunity] = useState(false);
   const [confirmLeaveLastMember, setConfirmLeaveLastMember] = useState(false);
   const [leavingCommunity, setLeavingCommunity] = useState(false);
+  const [editingCommunityName, setEditingCommunityName] = useState(false);
+  const [communityNameDraft, setCommunityNameDraft] = useState("");
+  const [savingCommunityName, setSavingCommunityName] = useState(false);
+  const [communityNameError, setCommunityNameError] = useState(null);
 
   const [showCommunityModal, setShowCommunityModal] = useState(false);
   const [joinCodeInput, setJoinCodeInput] = useState("");
@@ -340,6 +344,8 @@ export default function HomePage() {
   useEffect(() => {
     setConfirmLeaveCommunity(false);
     setConfirmLeaveLastMember(false);
+    setEditingCommunityName(false);
+    setCommunityNameError(null);
   }, [showMembersModal]);
 
   // --- communities ---
@@ -472,6 +478,36 @@ export default function HomePage() {
     setConfirmLeaveLastMember(false);
     setShowMembersModal(false);
     await loadMyCommunities();
+  };
+
+  const startEditCommunityName = () => {
+    const community = myCommunities.find((c) => c.id === currentCommunityId);
+    if (!community) return;
+    setCommunityNameDraft(community.name);
+    setCommunityNameError(null);
+    setEditingCommunityName(true);
+  };
+
+  const cancelEditCommunityName = () => {
+    setEditingCommunityName(false);
+    setCommunityNameDraft("");
+    setCommunityNameError(null);
+  };
+
+  const saveEditCommunityName = async () => {
+    const trimmed = communityNameDraft.trim();
+    if (!trimmed || !currentCommunityId) return;
+    setSavingCommunityName(true);
+    setCommunityNameError(null);
+    const { error } = await supabase.from("communities").update({ name: trimmed }).eq("id", currentCommunityId);
+    setSavingCommunityName(false);
+    if (error) {
+      setCommunityNameError(withDetail("コミュニティ名の変更に失敗しました。", error));
+      return;
+    }
+    setMyCommunities((prev) => prev.map((c) => (c.id === currentCommunityId ? { ...c, name: trimmed } : c)));
+    setEditingCommunityName(false);
+    setCommunityNameDraft("");
   };
 
   // Auto-join via a shared ?invite=CODE link, once communities have loaded.
@@ -2410,7 +2446,48 @@ export default function HomePage() {
             <div className="konote-modal-backdrop" onClick={() => setShowMembersModal(false)}>
               <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="konote-modal-head">
-                  <h2>{currentCommunity.name}</h2>
+                  {editingCommunityName ? (
+                    <div className="konote-profile-name-edit">
+                      <input
+                        type="text"
+                        className="konote-auth-input"
+                        value={communityNameDraft}
+                        onChange={(e) => setCommunityNameDraft(e.target.value)}
+                        placeholder="コミュニティ名"
+                        maxLength={20}
+                      />
+                      <div className="konote-edit-actions">
+                        <button
+                          className="konote-edit-cancel"
+                          onClick={cancelEditCommunityName}
+                          disabled={savingCommunityName}
+                        >
+                          キャンセル
+                        </button>
+                        <button
+                          className="konote-edit-save"
+                          onClick={saveEditCommunityName}
+                          disabled={!communityNameDraft.trim() || savingCommunityName}
+                        >
+                          {savingCommunityName ? "保存中…" : "保存"}
+                        </button>
+                      </div>
+                      {communityNameError && <p className="konote-error">{communityNameError}</p>}
+                    </div>
+                  ) : (
+                    <div className="konote-modal-title-row">
+                      <h2>{currentCommunity.name}</h2>
+                      <button
+                        type="button"
+                        className="konote-edit-btn"
+                        onClick={startEditCommunityName}
+                        aria-label="コミュニティ名を変更"
+                        title="コミュニティ名を変更"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  )}
                   <button
                     className="konote-modal-close"
                     onClick={() => setShowMembersModal(false)}
