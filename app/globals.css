@@ -99,7 +99,7 @@ body {
   right: 4px;
 }
 .konote-eyebrow {
-  font-family: var(--font-sans);
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px;
   letter-spacing: 0.18em;
   color: var(--gold);
@@ -645,7 +645,7 @@ body {
   margin-bottom: 14px;
 }
 .konote-stamp-date {
-  font-family: var(--font-sans);
+  font-family: "JetBrains Mono", monospace;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.03em;
@@ -696,7 +696,7 @@ body {
 }
 .konote-list-date {
   flex-shrink: 0;
-  font-family: var(--font-sans);
+  font-family: "JetBrains Mono", monospace;
   font-size: 12px;
   font-weight: 700;
   color: var(--kon-peki);
@@ -1059,7 +1059,7 @@ body {
 }
 .konote-sync-note {
   text-align: center;
-  font-family: var(--font-sans);
+  font-family: "JetBrains Mono", monospace;
   font-size: 10px;
   color: var(--muted-text);
   margin-top: 20px;
