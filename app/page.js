@@ -733,6 +733,19 @@ export default function HomePage() {
     return (entryRows || []).map((e) => ({ ...e, comments: byEntry[e.id] || [] }));
   }, []);
 
+  // Shared fetch for the current community/filter combination. Used both by
+  // the reset effect below and by the manual/background refresh triggers
+  // (visibility-resume, pull-to-refresh) further down — none of them rely
+  // on realtime anymore, so this is the single place entries get (re)loaded.
+  const loadEntries = useCallback(async () => {
+    const rows = isListMode
+      ? await fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, null)
+      : await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null);
+    setEntries(rows);
+    setHasMore(rows.length === PAGE_SIZE);
+    setErrorMsg(null);
+  }, [currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
+
   // Reset & fetch the first page whenever the community or a filter changes.
   useEffect(() => {
     if (!session || !currentCommunityId) {
@@ -744,16 +757,7 @@ export default function HomePage() {
     let cancelled = false;
     setEntriesLoading(true);
     setExpandedEntryIds(new Set());
-    const fetchFirstPage = isListMode
-      ? fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, null)
-      : fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null);
-    fetchFirstPage
-      .then((rows) => {
-        if (cancelled) return;
-        setEntries(rows);
-        setHasMore(rows.length === PAGE_SIZE);
-        setErrorMsg(null);
-      })
+    loadEntries()
       .catch((err) => {
         if (cancelled) return;
         setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
@@ -764,7 +768,30 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [session, currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
+  }, [session, currentCommunityId, loadEntries]);
+
+  // Manual/background refresh: re-run loadEntries without the full-screen
+  // loading state, so the existing list stays visible while it updates.
+  // Used by the visibility-resume listener and pull-to-refresh below.
+  const refreshEntries = useCallback(async () => {
+    if (!session || !currentCommunityId) return;
+    try {
+      await loadEntries();
+    } catch (err) {
+      setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
+    }
+  }, [session, currentCommunityId, loadEntries]);
+
+  // Resume from background: the app no longer keeps a realtime subscription
+  // open, so re-fetch the current list when the tab/app becomes visible
+  // again instead of relying on a push that may have been missed while hidden.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshEntries();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [refreshEntries]);
 
   const loadMoreEntries = useCallback(async () => {
     if (loadingMore || !hasMore || !currentCommunityId || entries.length === 0) return;
@@ -870,93 +897,58 @@ export default function HomePage() {
     pageEl?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // --- realtime: apply just the changed row instead of refetching everything ---
-  // Filters can change without tearing this down; the handlers below read
-  // the latest filter values via refs so a stale closure can't apply an
-  // insert that no longer matches.
-  const selectedAuthorIdRef = useRef(selectedAuthorId);
-  const selectedDateRef = useRef(selectedDate);
+  // Pull-to-refresh: the feed scrolls inside .konote-page rather than the
+  // window (see konote-app-feed above), so the browser's native
+  // pull-to-refresh gesture never fires here — this tracks a downward drag
+  // that starts only once the container is already scrolled to the top.
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   useEffect(() => {
-    selectedAuthorIdRef.current = selectedAuthorId;
-  }, [selectedAuthorId]);
-  useEffect(() => {
-    selectedDateRef.current = selectedDate;
-  }, [selectedDate]);
-
-  useEffect(() => {
-    if (!session || !currentCommunityId) return;
-    const channel = supabase
-      .channel(`diary-realtime-${currentCommunityId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "entry_communities",
-          filter: `community_id=eq.${currentCommunityId}`,
-        },
-        async (payload) => {
-          const entryId = payload.new.entry_id;
-          const { data, error } = await supabase.from("diary_entries").select("*").eq("id", entryId).single();
-          if (error || !data) return;
-          if (selectedAuthorIdRef.current && data.author_id !== selectedAuthorIdRef.current) return;
-          if (selectedDateRef.current && data.entry_date !== selectedDateRef.current) return;
-          setEntries((prev) => (prev.some((e) => e.id === data.id) ? prev : [{ ...data, comments: [] }, ...prev]));
-        }
-      )
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "diary_entries" }, (payload) => {
-        setEntries((prev) =>
-          prev.map((e) => (e.id === payload.new.id ? { ...e, ...payload.new, comments: e.comments } : e))
-        );
-      })
-      .on("postgres_changes", { event: "DELETE", schema: "public", table: "diary_entries" }, (payload) => {
-        setEntries((prev) => prev.filter((e) => e.id !== payload.old.id));
-      })
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
-        (payload) => {
-          const c = payload.new;
-          setEntries((prev) =>
-            prev.map((e) =>
-              e.id === c.entry_id && !e.comments.some((existing) => existing.id === c.id)
-                ? { ...e, comments: [...e.comments, c] }
-                : e
-            )
-          );
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
-        (payload) => {
-          const c = payload.new;
-          setEntries((prev) =>
-            prev.map((e) =>
-              e.id === c.entry_id
-                ? { ...e, comments: e.comments.map((existing) => (existing.id === c.id ? c : existing)) }
-                : e
-            )
-          );
-        }
-      )
-      .on(
-        "postgres_changes",
-        { event: "DELETE", schema: "public", table: "comments", filter: `community_id=eq.${currentCommunityId}` },
-        (payload) => {
-          const deletedId = payload.old.id;
-          setEntries((prev) =>
-            prev.map((e) =>
-              e.comments.some((c) => c.id === deletedId)
-                ? { ...e, comments: e.comments.filter((c) => c.id !== deletedId) }
-                : e
-            )
-          );
-        }
-      )
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [session, currentCommunityId]);
+    if (!pageEl) return;
+    const PULL_THRESHOLD = 70;
+    const MAX_PULL = 110;
+    let startY = null;
+    let tracking = false;
+    let distance = 0;
+    const reset = () => {
+      startY = null;
+      tracking = false;
+      distance = 0;
+      setPullDistance(0);
+    };
+    const handleTouchStart = (e) => {
+      if (pageEl.scrollTop > 0) return;
+      startY = e.touches[0].clientY;
+      tracking = true;
+    };
+    const handleTouchMove = (e) => {
+      if (!tracking || startY === null) return;
+      if (pageEl.scrollTop > 0) {
+        reset();
+        return;
+      }
+      const delta = e.touches[0].clientY - startY;
+      distance = Math.max(0, Math.min(delta, MAX_PULL));
+      setPullDistance(distance);
+    };
+    const handleTouchEnd = () => {
+      if (tracking && distance >= PULL_THRESHOLD) {
+        setIsPullRefreshing(true);
+        refreshEntries().finally(() => setIsPullRefreshing(false));
+      }
+      reset();
+    };
+    pageEl.addEventListener("touchstart", handleTouchStart, { passive: true });
+    pageEl.addEventListener("touchmove", handleTouchMove, { passive: true });
+    pageEl.addEventListener("touchend", handleTouchEnd, { passive: true });
+    pageEl.addEventListener("touchcancel", reset, { passive: true });
+    return () => {
+      pageEl.removeEventListener("touchstart", handleTouchStart);
+      pageEl.removeEventListener("touchmove", handleTouchMove);
+      pageEl.removeEventListener("touchend", handleTouchEnd);
+      pageEl.removeEventListener("touchcancel", reset);
+    };
+  }, [pageEl, refreshEntries]);
 
   // Membership list for the current community: used to build the friend
   // filter chips (independent of who has actually posted) and the members
@@ -1063,6 +1055,12 @@ export default function HomePage() {
       setNameError(withDetail("過去のコメントの更新に失敗しました。", commentsError));
       return;
     }
+    setEntries((prev) =>
+      prev.map((e) => ({
+        ...(e.author_id === session.user.id ? { ...e, author_name: trimmed } : e),
+        comments: e.comments.map((c) => (c.author_id === session.user.id ? { ...c, author_name: trimmed } : c)),
+      }))
+    );
     setDisplayNameOverride(trimmed);
     setEditingName(false);
   };
@@ -1312,20 +1310,19 @@ export default function HomePage() {
     const trimmed = editEntryDraft.trim();
     if (!trimmed || !editEntryDateDraft) return;
     setSavingEntryEdit(true);
-    const { error } = await supabase
-      .from("diary_entries")
-      .update({
-        title: editEntryTitleDraft.trim() || null,
-        content: trimmed,
-        entry_date: editEntryDateDraft,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", entryId);
+    const updatedFields = {
+      title: editEntryTitleDraft.trim() || null,
+      content: trimmed,
+      entry_date: editEntryDateDraft,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from("diary_entries").update(updatedFields).eq("id", entryId);
     setSavingEntryEdit(false);
     if (error) {
       setErrorMsg(withDetail("日記の更新に失敗しました。", error));
       return;
     }
+    setEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...updatedFields } : e)));
     setEditingEntryId(null);
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
@@ -1346,15 +1343,20 @@ export default function HomePage() {
     const trimmed = editCommentDraft.trim();
     if (!trimmed) return;
     setSavingCommentEdit(true);
-    const { error } = await supabase
-      .from("comments")
-      .update({ content: trimmed, updated_at: new Date().toISOString() })
-      .eq("id", commentId);
+    const updatedFields = { content: trimmed, updated_at: new Date().toISOString() };
+    const { error } = await supabase.from("comments").update(updatedFields).eq("id", commentId);
     setSavingCommentEdit(false);
     if (error) {
       setErrorMsg(withDetail("コメントの更新に失敗しました。", error));
       return;
     }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.comments.some((c) => c.id === commentId)
+          ? { ...e, comments: e.comments.map((c) => (c.id === commentId ? { ...c, ...updatedFields } : c)) }
+          : e
+      )
+    );
     setEditingCommentId(null);
     setEditCommentDraft("");
   };
@@ -1367,6 +1369,7 @@ export default function HomePage() {
       setErrorMsg(withDetail("日記の削除に失敗しました。", error));
       return;
     }
+    setEntries((prev) => prev.filter((e) => e.id !== entryId));
     setConfirmDeleteEntryId(null);
   };
 
@@ -1378,6 +1381,13 @@ export default function HomePage() {
       setErrorMsg(withDetail("コメントの削除に失敗しました。", error));
       return;
     }
+    setEntries((prev) =>
+      prev.map((e) =>
+        e.comments.some((c) => c.id === commentId)
+          ? { ...e, comments: e.comments.filter((c) => c.id !== commentId) }
+          : e
+      )
+    );
     setConfirmDeleteCommentId(null);
   };
 
@@ -1685,6 +1695,14 @@ export default function HomePage() {
       </header>
 
       <main className="konote-page" ref={setPageEl}>
+        {(pullDistance > 0 || isPullRefreshing) && (
+          <div
+            className="konote-pull-refresh"
+            style={{ height: isPullRefreshing ? 40 : pullDistance }}
+          >
+            <span className={`konote-pull-refresh-spinner ${isPullRefreshing ? "is-spinning" : ""}`} />
+          </div>
+        )}
         {errorMsg && <div className="konote-error-banner">{errorMsg}</div>}
 
         {!entriesLoading && communityMemberNames.length > 0 && (

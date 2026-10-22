@@ -493,6 +493,28 @@ body {
   padding: 24px 16px 100px;
   box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.25);
 }
+.konote-pull-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: height 0.15s ease;
+}
+.konote-pull-refresh-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(59, 54, 44, 0.15);
+  border-top-color: var(--muted-text);
+  border-radius: 50%;
+}
+.konote-pull-refresh-spinner.is-spinning {
+  animation: konote-pull-refresh-spin 0.7s linear infinite;
+}
+@keyframes konote-pull-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .konote-error-banner {
   background: rgba(147, 68, 91, 0.12);
   border: 1px solid var(--wine);
