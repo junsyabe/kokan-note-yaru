@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 const AUTHOR_COLORS = ["#2D6A93", "#93445B", "#4C7A5D", "#8B5FA0", "#B9762F", "#3E6B6B"];
 const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const PAGE_SIZE = 10;
+const NOTIFICATION_PAGE_SIZE = 10;
 const NEW_ENTRY_DRAFT_KEY = "draft:new-entry";
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -295,6 +296,8 @@ export default function HomePage() {
   const [showNotificationsModal, setShowNotificationsModal] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsLoadingMore, setNotificationsLoadingMore] = useState(false);
+  const [hasMoreNotifications, setHasMoreNotifications] = useState(false);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [confirmLeaveCommunity, setConfirmLeaveCommunity] = useState(false);
   const [confirmLeaveLastMember, setConfirmLeaveLastMember] = useState(false);
@@ -639,28 +642,70 @@ export default function HomePage() {
   const handleOpenNotifications = async () => {
     setShowNotificationsModal(true);
     setNotificationsLoading(true);
+    setNotifications([]);
+    setHasMoreNotifications(false);
     const { data, error } = await supabase
       .from("notifications")
       .select("*")
       .eq("user_id", session.user.id)
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(NOTIFICATION_PAGE_SIZE);
     setNotificationsLoading(false);
     if (error) {
       setErrorMsg(withDetail("通知の読み込みに失敗しました。", error));
       return;
     }
     setNotifications(data || []);
-    const unreadIds = (data || []).filter((n) => !n.read_at).map((n) => n.id);
-    if (unreadIds.length > 0) {
-      const now = new Date().toISOString();
-      const { error: readError } = await supabase.from("notifications").update({ read_at: now }).in("id", unreadIds);
-      if (!readError) {
-        setUnreadNotificationCount(0);
-        setNotifications((prev) => prev.map((n) => (unreadIds.includes(n.id) ? { ...n, read_at: now } : n)));
-      }
+    setHasMoreNotifications((data || []).length === NOTIFICATION_PAGE_SIZE);
+
+    // Mark every unread notification as read, not just the first page shown
+    // here — pages loaded later via pagination should come back already
+    // read, since they were part of the same "opened the modal" moment.
+    const now = new Date().toISOString();
+    const { error: readError } = await supabase
+      .from("notifications")
+      .update({ read_at: now })
+      .eq("user_id", session.user.id)
+      .is("read_at", null);
+    if (!readError) {
+      setUnreadNotificationCount(0);
+      setNotifications((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
     }
   };
+
+  const loadMoreNotifications = useCallback(async () => {
+    if (notificationsLoadingMore || !hasMoreNotifications || !session || notifications.length === 0) return;
+    setNotificationsLoadingMore(true);
+    const cursor = notifications[notifications.length - 1].created_at;
+    const { data, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", session.user.id)
+      .order("created_at", { ascending: false })
+      .lt("created_at", cursor)
+      .limit(NOTIFICATION_PAGE_SIZE);
+    setNotificationsLoadingMore(false);
+    if (error) {
+      setErrorMsg(withDetail("通知の読み込みに失敗しました。", error));
+      return;
+    }
+    setNotifications((prev) => [...prev, ...(data || [])]);
+    setHasMoreNotifications((data || []).length === NOTIFICATION_PAGE_SIZE);
+  }, [notificationsLoadingMore, hasMoreNotifications, session, notifications]);
+
+  const notificationSentinelRef = useRef(null);
+  useEffect(() => {
+    const el = notificationSentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (observed) => {
+        if (observed[0].isIntersecting) loadMoreNotifications();
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [loadMoreNotifications]);
 
   const handleNotificationClick = (notification) => {
     setShowNotificationsModal(false);
@@ -2450,6 +2495,15 @@ export default function HomePage() {
                     <span className="konote-notification-time">{formatRelativeTime(n.created_at)}</span>
                   </button>
                 ))}
+                <div ref={notificationSentinelRef} className="konote-load-sentinel">
+                  {notificationsLoadingMore ? (
+                    <p className="konote-loading-text" style={{ color: "var(--muted-text)" }}>
+                      読み込み中…
+                    </p>
+                  ) : !hasMoreNotifications ? (
+                    <p className="konote-no-more-text">これ以上の通知はありません</p>
+                  ) : null}
+                </div>
               </div>
             )}
           </div>
