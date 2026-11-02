@@ -8,7 +8,7 @@ const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const PAGE_SIZE = 10;
 const NOTIFICATION_PAGE_SIZE = 10;
 const NEW_ENTRY_DRAFT_KEY = "draft:new-entry";
-const QUICK_REACTION_EMOJIS = ["❤️", "👍", "😂", "🎉", "😢"];
+const DEFAULT_REACTION_EMOJIS = ["❤️", "👍", "😂", "🎉", "😢"];
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -136,6 +136,29 @@ function isSingleEmoji(str) {
   if (segments.length !== 1) return false;
   const grapheme = segments[0].segment;
   return /\p{Extended_Pictographic}/u.test(grapheme) || /^\p{Regional_Indicator}\p{Regional_Indicator}$/u.test(grapheme);
+}
+
+// The quick-pick row in the reaction picker: the user's own 5 most
+// recently-used distinct emoji (across all communities — this is a
+// personal habit, not something that needs per-community scoping), newest
+// first. Best-effort — on any failure the caller just keeps the default set.
+async function fetchRecentReactionEmojis(userId) {
+  const { data, error } = await supabase
+    .from("reactions")
+    .select("emoji, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error || !data) return [];
+  const seen = new Set();
+  const recent = [];
+  for (const r of data) {
+    if (seen.has(r.emoji)) continue;
+    seen.add(r.emoji);
+    recent.push(r.emoji);
+    if (recent.length === 5) break;
+  }
+  return recent;
 }
 
 // Groups an entry's flat reaction rows into one chip per emoji, in the
@@ -305,6 +328,7 @@ export default function HomePage() {
 
   const [reactionPickerEntryId, setReactionPickerEntryId] = useState(null);
   const [reactionEmojiDraft, setReactionEmojiDraft] = useState("");
+  const [recentReactionEmojis, setRecentReactionEmojis] = useState([]);
 
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileStats, setProfileStats] = useState({ count: 0 });
@@ -838,7 +862,17 @@ export default function HomePage() {
     setEntries(rows);
     setHasMore(rows.length === PAGE_SIZE);
     setErrorMsg(null);
-  }, [currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
+    // Refreshed on the same timing as the list itself (app open, community
+    // switch, filter change, visibility-resume, pull-to-refresh) — not on
+    // pagination, since this doesn't depend on which page is in view. Fire
+    // and forget: it's a quality-of-life suggestion list, not worth
+    // blocking or erroring the entries fetch over.
+    if (session) {
+      fetchRecentReactionEmojis(session.user.id).then((recent) => {
+        if (recent.length > 0) setRecentReactionEmojis(recent);
+      });
+    }
+  }, [session, currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
 
   // Reset & fetch the first page whenever the community or a filter changes.
   useEffect(() => {
@@ -2202,7 +2236,7 @@ export default function HomePage() {
                         </button>
                         {reactionPickerEntryId === entry.id && (
                           <div className="konote-reaction-picker">
-                            {QUICK_REACTION_EMOJIS.map((emoji) => (
+                            {(recentReactionEmojis.length > 0 ? recentReactionEmojis : DEFAULT_REACTION_EMOJIS).map((emoji) => (
                               <button
                                 key={emoji}
                                 type="button"
