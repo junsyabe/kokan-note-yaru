@@ -233,7 +233,8 @@ body {
 .konote-me-avatar,
 .konote-avatar,
 .konote-comment-avatar,
-.konote-filter-avatar {
+.konote-filter-avatar,
+.konote-reaction-avatar {
   border-radius: 50%;
   color: #fff;
   font-weight: 700;
@@ -859,13 +860,15 @@ body {
   border-color: var(--kon-peki);
   background: rgba(45, 106, 147, 0.08);
 }
-.konote-reaction-count {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--muted-text);
+.konote-reaction-avatars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
 }
-.konote-reaction-chip.is-mine .konote-reaction-count {
-  color: var(--kon-peki);
+.konote-reaction-avatar {
+  width: 16px;
+  height: 16px;
+  font-size: 8px;
 }
 .konote-reaction-add-wrap {
   position: relative;
@@ -888,36 +891,15 @@ body {
   color: var(--kon-peki);
   border-color: var(--kon-peki);
 }
-.konote-reaction-picker {
-  position: absolute;
-  z-index: 5;
-  top: calc(100% + 6px);
-  left: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--cream);
-  border: 1px solid rgba(59, 54, 44, 0.15);
-  border-radius: 999px;
-  padding: 6px 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
-  white-space: nowrap;
-}
-.konote-reaction-picker-btn {
-  border: none;
-  background: transparent;
-  font-size: 17px;
-  line-height: 1;
-  padding: 3px;
-  cursor: pointer;
-}
 .konote-reaction-emoji-input {
-  width: 38px;
-  border: none;
-  border-left: 1px solid rgba(59, 54, 44, 0.2);
-  background: transparent;
-  font-size: 15px;
-  padding: 3px 0 3px 8px;
+  width: 48px;
+  height: 26px;
+  border: 1px solid var(--kon-peki);
+  background: var(--card-bg);
+  border-radius: 999px;
+  font-size: 14px;
+  text-align: center;
+  padding: 0 6px;
   outline: none;
 }
 .konote-edit-btn {
