@@ -8,6 +8,7 @@ const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const PAGE_SIZE = 10;
 const NOTIFICATION_PAGE_SIZE = 10;
 const NEW_ENTRY_DRAFT_KEY = "draft:new-entry";
+const QUICK_REACTION_EMOJIS = ["❤️", "👍", "😂", "🎉", "😢"];
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -123,6 +124,35 @@ function todayStr() {
 
 function withDetail(message, err) {
   return err?.message ? `${message}（${err.message}）` : message;
+}
+
+// Accepts exactly one grapheme cluster that's an emoji — either a pictograph
+// (covers skin-tone modifiers, ZWJ sequences, variation selectors, since
+// those all attach to a base character with this property) or a flag (two
+// regional-indicator code points forming one cluster).
+function isSingleEmoji(str) {
+  if (!str || typeof Intl === "undefined" || !Intl.Segmenter) return false;
+  const segments = Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(str));
+  if (segments.length !== 1) return false;
+  const grapheme = segments[0].segment;
+  return /\p{Extended_Pictographic}/u.test(grapheme) || /^\p{Regional_Indicator}\p{Regional_Indicator}$/u.test(grapheme);
+}
+
+// Groups an entry's flat reaction rows into one chip per emoji, in the
+// order each emoji first appears, with a count and whether the current
+// user is among the reactors.
+function groupReactions(reactions, userId) {
+  const order = [];
+  const byEmoji = {};
+  (reactions || []).forEach((r) => {
+    if (!byEmoji[r.emoji]) {
+      byEmoji[r.emoji] = { emoji: r.emoji, count: 0, mine: false };
+      order.push(r.emoji);
+    }
+    byEmoji[r.emoji].count += 1;
+    if (r.user_id === userId) byEmoji[r.emoji].mine = true;
+  });
+  return order.map((emoji) => byEmoji[emoji]);
 }
 
 // Draft autosave: best-effort, so a private-mode/quota failure just means
@@ -272,6 +302,9 @@ export default function HomePage() {
   const [deletingEntry, setDeletingEntry] = useState(false);
   const [confirmDeleteCommentId, setConfirmDeleteCommentId] = useState(null);
   const [deletingComment, setDeletingComment] = useState(false);
+
+  const [reactionPickerEntryId, setReactionPickerEntryId] = useState(null);
+  const [reactionEmojiDraft, setReactionEmojiDraft] = useState("");
 
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileStats, setProfileStats] = useState({ count: 0 });
@@ -739,7 +772,7 @@ export default function HomePage() {
       p_limit: PAGE_SIZE,
     });
     if (error) throw error;
-    return (data || []).map((e) => ({ ...e, comments: [], lite: true }));
+    return (data || []).map((e) => ({ ...e, comments: [], reactions: [], lite: true }));
   }, []);
 
   const fetchEntriesPage = useCallback(async (communityId, authorId, entryDate, cursor) => {
@@ -756,26 +789,42 @@ export default function HomePage() {
     if (entryErr) throw entryErr;
     const ids = (entryRows || []).map((e) => e.id);
     let commentRows = [];
+    let reactionRows = [];
     if (ids.length > 0) {
       // A single entry can be shared into several communities, so comments
       // on it are scoped per-community too — without this filter, a
       // comment left in community B would leak into community A's view of
-      // the same entry.
-      const { data, error: commentErr } = await supabase
-        .from("comments")
-        .select("*")
-        .in("entry_id", ids)
-        .eq("community_id", communityId)
-        .order("created_at", { ascending: true });
+      // the same entry. Reactions follow the same per-community scoping.
+      const [{ data: commentData, error: commentErr }, { data: reactionData, error: reactionErr }] =
+        await Promise.all([
+          supabase
+            .from("comments")
+            .select("*")
+            .in("entry_id", ids)
+            .eq("community_id", communityId)
+            .order("created_at", { ascending: true }),
+          supabase.from("reactions").select("*").in("entry_id", ids).eq("community_id", communityId),
+        ]);
       if (commentErr) throw commentErr;
-      commentRows = data || [];
+      if (reactionErr) throw reactionErr;
+      commentRows = commentData || [];
+      reactionRows = reactionData || [];
     }
     const byEntry = {};
     commentRows.forEach((c) => {
       if (!byEntry[c.entry_id]) byEntry[c.entry_id] = [];
       byEntry[c.entry_id].push(c);
     });
-    return (entryRows || []).map((e) => ({ ...e, comments: byEntry[e.id] || [] }));
+    const reactionsByEntry = {};
+    reactionRows.forEach((r) => {
+      if (!reactionsByEntry[r.entry_id]) reactionsByEntry[r.entry_id] = [];
+      reactionsByEntry[r.entry_id].push(r);
+    });
+    return (entryRows || []).map((e) => ({
+      ...e,
+      comments: byEntry[e.id] || [],
+      reactions: reactionsByEntry[e.id] || [],
+    }));
   }, []);
 
   // Shared fetch for the current community/filter combination. Used both by
@@ -890,19 +939,30 @@ export default function HomePage() {
       setErrorMsg(withDetail("日記の読み込みに失敗しました。", entryErr));
       return;
     }
-    const { data: comments, error: commentErr } = await supabase
-      .from("comments")
-      .select("*")
-      .eq("entry_id", entry.id)
-      .eq("community_id", currentCommunityId)
-      .order("created_at", { ascending: true });
+    const [{ data: comments, error: commentErr }, { data: reactions, error: reactionErr }] = await Promise.all([
+      supabase
+        .from("comments")
+        .select("*")
+        .eq("entry_id", entry.id)
+        .eq("community_id", currentCommunityId)
+        .order("created_at", { ascending: true }),
+      supabase.from("reactions").select("*").eq("entry_id", entry.id).eq("community_id", currentCommunityId),
+    ]);
     setExpandingEntryId(null);
     if (commentErr) {
       setErrorMsg(withDetail("コメントの読み込みに失敗しました。", commentErr));
       return;
     }
+    if (reactionErr) {
+      setErrorMsg(withDetail("リアクションの読み込みに失敗しました。", reactionErr));
+      return;
+    }
     setEntries((prev) =>
-      prev.map((e) => (e.id === entry.id ? { ...e, ...full, comments: comments || [], lite: false } : e))
+      prev.map((e) =>
+        e.id === entry.id
+          ? { ...e, ...full, comments: comments || [], reactions: reactions || [], lite: false }
+          : e
+      )
     );
     setExpandedEntryIds((prev) => new Set(prev).add(entry.id));
   };
@@ -1292,7 +1352,7 @@ export default function HomePage() {
       const { data: inserted } = await supabase.from("diary_entries").select("*").eq("id", newEntryId).single();
       if (inserted) {
         setEntries((prev) =>
-          prev.some((e) => e.id === inserted.id) ? prev : [{ ...inserted, comments: [] }, ...prev]
+          prev.some((e) => e.id === inserted.id) ? prev : [{ ...inserted, comments: [], reactions: [] }, ...prev]
         );
       }
     }
@@ -1435,6 +1495,113 @@ export default function HomePage() {
     );
     setConfirmDeleteCommentId(null);
   };
+
+  // --- entry reactions ---
+  // Optimistic add/remove: the local state flips immediately, then the
+  // Supabase call confirms it. A unique-violation on insert (23505) just
+  // means another tap/device already added the same reaction, which is the
+  // state we were going for anyway, so it's treated as success.
+  const toggleReaction = async (entry, emoji) => {
+    if (!session || !currentCommunityId) return;
+    const userId = session.user.id;
+    const alreadyMine = (entry.reactions || []).some((r) => r.user_id === userId && r.emoji === emoji);
+    if (alreadyMine) {
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? { ...e, reactions: e.reactions.filter((r) => !(r.user_id === userId && r.emoji === emoji)) }
+            : e
+        )
+      );
+      const { error } = await supabase
+        .from("reactions")
+        .delete()
+        .eq("entry_id", entry.id)
+        .eq("community_id", currentCommunityId)
+        .eq("user_id", userId)
+        .eq("emoji", emoji);
+      if (error) {
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === entry.id
+              ? {
+                  ...e,
+                  reactions: [
+                    ...e.reactions,
+                    { entry_id: entry.id, community_id: currentCommunityId, user_id: userId, emoji },
+                  ],
+                }
+              : e
+          )
+        );
+        setErrorMsg(withDetail("リアクションの取り消しに失敗しました。", error));
+      }
+    } else {
+      setEntries((prev) =>
+        prev.map((e) =>
+          e.id === entry.id
+            ? {
+                ...e,
+                reactions: [
+                  ...(e.reactions || []),
+                  { entry_id: entry.id, community_id: currentCommunityId, user_id: userId, emoji },
+                ],
+              }
+            : e
+        )
+      );
+      const { error } = await supabase
+        .from("reactions")
+        .insert({ entry_id: entry.id, community_id: currentCommunityId, user_id: userId, emoji });
+      if (error && error.code !== "23505") {
+        setEntries((prev) =>
+          prev.map((e) =>
+            e.id === entry.id
+              ? { ...e, reactions: e.reactions.filter((r) => !(r.user_id === userId && r.emoji === emoji)) }
+              : e
+          )
+        );
+        setErrorMsg(withDetail("リアクションの追加に失敗しました。", error));
+      }
+    }
+  };
+
+  const openReactionPicker = (entryId) => {
+    setReactionPickerEntryId((id) => (id === entryId ? null : entryId));
+    setReactionEmojiDraft("");
+  };
+
+  const handleReactionEmojiInput = (entry, value) => {
+    setReactionEmojiDraft(value);
+    if (isSingleEmoji(value)) {
+      toggleReaction(entry, value);
+      setReactionEmojiDraft("");
+      setReactionPickerEntryId(null);
+    }
+  };
+
+  const handleReactionEmojiBlur = () => {
+    setReactionEmojiDraft("");
+  };
+
+  // Close the inline reaction picker on an outside tap. It's rendered
+  // inline rather than in a backdrop-covered modal, so there's no backdrop
+  // click handler to piggyback on — this is the equivalent for it.
+  useEffect(() => {
+    if (!reactionPickerEntryId) return;
+    const handleOutside = (e) => {
+      if (!e.target.closest?.(".konote-reaction-add-wrap")) {
+        setReactionPickerEntryId(null);
+        setReactionEmojiDraft("");
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [reactionPickerEntryId]);
 
   // --- profile stats (via get_profile_stats RPC, called each time the modal opens) ---
   useEffect(() => {
@@ -2010,6 +2177,57 @@ export default function HomePage() {
                         <p className="konote-entry-content">{entry.content}</p>
                       </>
                     )}
+
+                    <div className="konote-reactions">
+                      {groupReactions(entry.reactions, session.user.id).map(({ emoji, count, mine }) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          className={`konote-reaction-chip ${mine ? "is-mine" : ""}`}
+                          onClick={() => toggleReaction(entry, emoji)}
+                        >
+                          <span>{emoji}</span>
+                          <span className="konote-reaction-count">{count}</span>
+                        </button>
+                      ))}
+                      <div className="konote-reaction-add-wrap">
+                        <button
+                          type="button"
+                          className="konote-reaction-add-btn"
+                          onClick={() => openReactionPicker(entry.id)}
+                          aria-label="リアクションを追加"
+                          title="リアクションを追加"
+                        >
+                          ＋
+                        </button>
+                        {reactionPickerEntryId === entry.id && (
+                          <div className="konote-reaction-picker">
+                            {QUICK_REACTION_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                className="konote-reaction-picker-btn"
+                                onClick={() => {
+                                  toggleReaction(entry, emoji);
+                                  setReactionPickerEntryId(null);
+                                }}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            <input
+                              type="text"
+                              className="konote-reaction-emoji-input"
+                              value={reactionEmojiDraft}
+                              onChange={(e) => handleReactionEmojiInput(entry, e.target.value)}
+                              onBlur={handleReactionEmojiBlur}
+                              placeholder="絵文字"
+                              maxLength={8}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
                     <div className="konote-comments">
                       {(entry.comments || []).map((c) => (

@@ -464,3 +464,29 @@ create policy "read own notifications" on notifications
 drop policy if exists "update own notifications" on notifications;
 create policy "update own notifications" on notifications
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Reactions (emoji) on diary entry bodies only — comments don't get them.
+-- The table itself (id, entry_id, community_id, user_id, emoji, created_at,
+-- unique on entry_id+community_id+user_id+emoji) was already created on the
+-- Supabase side; this just documents the matching RLS. Scoped per-community
+-- exactly like comments, since one entry can be shared into several
+-- communities and a reaction added in one shouldn't show up in another.
+alter table reactions enable row level security;
+
+drop policy if exists "read own community reactions" on reactions;
+create policy "read own community reactions" on reactions
+  for select using ( is_community_member(reactions.community_id) );
+
+drop policy if exists "insert own reactions" on reactions;
+create policy "insert own reactions" on reactions
+  for insert with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from entry_communities ec
+      where ec.entry_id = reactions.entry_id and ec.community_id = reactions.community_id
+    )
+  );
+
+drop policy if exists "delete own reactions" on reactions;
+create policy "delete own reactions" on reactions
+  for delete using (auth.uid() = user_id);
