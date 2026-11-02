@@ -891,15 +891,48 @@ body {
   color: var(--kon-peki);
   border-color: var(--kon-peki);
 }
-.konote-reaction-emoji-input {
-  width: 48px;
-  height: 26px;
-  border: 1px solid var(--kon-peki);
-  background: var(--card-bg);
+.konote-reaction-picker {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--cream);
+  border: 1px solid rgba(59, 54, 44, 0.15);
   border-radius: 999px;
-  font-size: 14px;
+  padding: 6px 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+}
+.konote-reaction-picker-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted-text);
+  font-size: 17px;
+  line-height: 1;
+  padding: 3px;
+  cursor: pointer;
+}
+.konote-reaction-picker-custom-btn {
+  border-left: 1px solid rgba(59, 54, 44, 0.2);
+  margin-left: 2px;
+  padding-left: 9px;
+  font-size: 15px;
+}
+.konote-reaction-picker-custom-btn:hover {
+  color: var(--kon-peki);
+}
+.konote-reaction-emoji-input {
+  width: 30px;
+  border: none;
+  border-left: 1px solid rgba(59, 54, 44, 0.2);
+  background: transparent;
+  font-size: 15px;
   text-align: center;
-  padding: 0 6px;
+  padding: 3px 0 3px 8px;
+  margin-left: 2px;
   outline: none;
 }
 .konote-edit-btn {

@@ -8,6 +8,7 @@ const WEEKDAY_KANJI = ["日", "月", "火", "水", "木", "金", "土"];
 const PAGE_SIZE = 10;
 const NOTIFICATION_PAGE_SIZE = 10;
 const NEW_ENTRY_DRAFT_KEY = "draft:new-entry";
+const DEFAULT_REACTION_EMOJIS = ["❤️", "👍", "😂", "🎉", "😢"];
 const INVITE_CODE = process.env.NEXT_PUBLIC_INVITE_CODE || "";
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -135,6 +136,29 @@ function isSingleEmoji(str) {
   if (segments.length !== 1) return false;
   const grapheme = segments[0].segment;
   return /\p{Extended_Pictographic}/u.test(grapheme) || /^\p{Regional_Indicator}\p{Regional_Indicator}$/u.test(grapheme);
+}
+
+// The quick-pick row in the reaction picker: the user's own 5 most
+// recently-used distinct emoji (across all communities — this is a
+// personal habit, not something that needs per-community scoping), newest
+// first. Best-effort — on any failure the caller just keeps the default set.
+async function fetchRecentReactionEmojis(userId) {
+  const { data, error } = await supabase
+    .from("reactions")
+    .select("emoji, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error || !data) return [];
+  const seen = new Set();
+  const recent = [];
+  for (const r of data) {
+    if (seen.has(r.emoji)) continue;
+    seen.add(r.emoji);
+    recent.push(r.emoji);
+    if (recent.length === 5) break;
+  }
+  return recent;
 }
 
 // Groups an entry's flat reaction rows into one chip per emoji, in the
@@ -304,7 +328,9 @@ export default function HomePage() {
   const [deletingComment, setDeletingComment] = useState(false);
 
   const [reactionPickerEntryId, setReactionPickerEntryId] = useState(null);
+  const [reactionCustomInputOpen, setReactionCustomInputOpen] = useState(false);
   const [reactionEmojiDraft, setReactionEmojiDraft] = useState("");
+  const [recentReactionEmojis, setRecentReactionEmojis] = useState([]);
 
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileStats, setProfileStats] = useState({ count: 0 });
@@ -838,7 +864,17 @@ export default function HomePage() {
     setEntries(rows);
     setHasMore(rows.length === PAGE_SIZE);
     setErrorMsg(null);
-  }, [currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
+    // Refreshed on the same timing as the list itself (app open, community
+    // switch, filter change, visibility-resume, pull-to-refresh) — not on
+    // pagination, since this doesn't depend on which page is in view. Fire
+    // and forget: it's a quality-of-life suggestion list, not worth
+    // blocking or erroring the entries fetch over.
+    if (session) {
+      fetchRecentReactionEmojis(session.user.id).then((recent) => {
+        if (recent.length > 0) setRecentReactionEmojis(recent);
+      });
+    }
+  }, [session, currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
 
   // Reset & fetch the first page whenever the community or a filter changes.
   useEffect(() => {
@@ -1568,25 +1604,47 @@ export default function HomePage() {
 
   const openReactionPicker = (entryId) => {
     setReactionEmojiDraft("");
+    setReactionCustomInputOpen(false);
     setReactionPickerEntryId(entryId);
+  };
+
+  const closeReactionPicker = () => {
+    setReactionPickerEntryId(null);
+    setReactionCustomInputOpen(false);
+    setReactionEmojiDraft("");
   };
 
   const handleReactionEmojiInput = (entry, value) => {
     setReactionEmojiDraft(value);
     if (isSingleEmoji(value)) {
       toggleReaction(entry, value);
-      setReactionEmojiDraft("");
-      setReactionPickerEntryId(null);
+      closeReactionPicker();
     }
   };
 
-  // Losing focus (tapping away, dismissing the keyboard) reverts to the +
-  // button — same as the "invalid input empties the field" rule, just
-  // triggered by blur instead of a popup's outside-tap close.
-  const handleReactionEmojiBlur = () => {
+  // Losing focus (tapping away, dismissing the keyboard) without a valid
+  // emoji having been applied reverts just this slot back to its own +
+  // button — the rest of the picker (the 5 quick emoji) stays open.
+  const handleReactionEmojiInputBlur = () => {
     setReactionEmojiDraft("");
-    setReactionPickerEntryId(null);
+    setReactionCustomInputOpen(false);
   };
+
+  // Close the whole picker on an outside tap. It's rendered inline rather
+  // than in a backdrop-covered modal, so there's no backdrop click handler
+  // to piggyback on — this is the equivalent for it.
+  useEffect(() => {
+    if (!reactionPickerEntryId) return;
+    const handleOutside = (e) => {
+      if (!e.target.closest?.(".konote-reaction-add-wrap")) closeReactionPicker();
+    };
+    document.addEventListener("mousedown", handleOutside);
+    document.addEventListener("touchstart", handleOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
+  }, [reactionPickerEntryId]);
 
   // --- profile stats (via get_profile_stats RPC, called each time the modal opens) ---
   useEffect(() => {
@@ -2198,27 +2256,54 @@ export default function HomePage() {
                         </button>
                       ))}
                       <div className="konote-reaction-add-wrap">
-                        {reactionPickerEntryId === entry.id ? (
-                          <input
-                            type="text"
-                            className="konote-reaction-emoji-input"
-                            value={reactionEmojiDraft}
-                            autoFocus
-                            onChange={(e) => handleReactionEmojiInput(entry, e.target.value)}
-                            onBlur={handleReactionEmojiBlur}
-                            placeholder="😀"
-                            maxLength={8}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            className="konote-reaction-add-btn"
-                            onClick={() => openReactionPicker(entry.id)}
-                            aria-label="リアクションを追加"
-                            title="リアクションを追加"
-                          >
-                            ＋
-                          </button>
+                        <button
+                          type="button"
+                          className="konote-reaction-add-btn"
+                          onClick={() => openReactionPicker(entry.id)}
+                          aria-label="リアクションを追加"
+                          title="リアクションを追加"
+                        >
+                          ＋
+                        </button>
+                        {reactionPickerEntryId === entry.id && (
+                          <div className="konote-reaction-picker">
+                            {(recentReactionEmojis.length > 0 ? recentReactionEmojis : DEFAULT_REACTION_EMOJIS).map(
+                              (emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  className="konote-reaction-picker-btn"
+                                  onClick={() => {
+                                    toggleReaction(entry, emoji);
+                                    closeReactionPicker();
+                                  }}
+                                >
+                                  {emoji}
+                                </button>
+                              )
+                            )}
+                            {reactionCustomInputOpen ? (
+                              <input
+                                type="text"
+                                className="konote-reaction-emoji-input"
+                                value={reactionEmojiDraft}
+                                autoFocus
+                                onChange={(e) => handleReactionEmojiInput(entry, e.target.value)}
+                                onBlur={handleReactionEmojiInputBlur}
+                                maxLength={8}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                className="konote-reaction-picker-btn konote-reaction-picker-custom-btn"
+                                onClick={() => setReactionCustomInputOpen(true)}
+                                aria-label="絵文字を入力"
+                                title="絵文字を入力"
+                              >
+                                ＋
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
