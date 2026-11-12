@@ -1796,6 +1796,17 @@ export default function HomePage() {
     });
   };
 
+  // Tapping a day with a post reuses the existing friend+date filter
+  // (rather than jumping to one specific entry) so a day with more than
+  // one post from this person shows all of them, same as using the
+  // filter chips/date picker by hand would.
+  const goToCalendarDate = (dateKey) => {
+    const author = profileTarget;
+    setProfileTarget(null);
+    setSelectedAuthor(author);
+    setSelectedDate(dateKey);
+  };
+
   // Two-page (record / calendar) layout inside the profile modal: a
   // horizontally scroll-snapping pair of panes on narrow screens, side by
   // side on wide ones (see the >=640px rule in globals.css). The tab row
@@ -2847,24 +2858,35 @@ export default function HomePage() {
                 <div className="konote-calendar-grid">
                   {calendarWeeks.map((week, wi) => (
                     <div className="konote-calendar-row" key={wi}>
-                      {week.map((cell, ci) => (
-                        <div
-                          key={cell ? cell.key : `blank-${ci}`}
-                          className={`konote-calendar-cell ${cell && cell.key === calendarTodayKey ? "is-today" : ""}`}
-                        >
-                          {cell && (
-                            <>
-                              <span className="konote-calendar-day">{cell.day}</span>
-                              {calendarEntryDateSet.has(cell.key) && (
-                                <span
-                                  className="konote-calendar-dot"
-                                  style={{ background: colorForName(profileTarget) }}
-                                />
-                              )}
-                            </>
-                          )}
-                        </div>
-                      ))}
+                      {week.map((cell, ci) => {
+                        const hasEntry = cell && calendarEntryDateSet.has(cell.key);
+                        const cellClassName = `konote-calendar-cell ${
+                          cell && cell.key === calendarTodayKey ? "is-today" : ""
+                        }`;
+                        const cellContent = cell && (
+                          <>
+                            <span className="konote-calendar-day">{cell.day}</span>
+                            {hasEntry && (
+                              <span className="konote-calendar-dot" style={{ background: colorForName(profileTarget) }} />
+                            )}
+                          </>
+                        );
+                        return hasEntry ? (
+                          <button
+                            key={cell.key}
+                            type="button"
+                            className={cellClassName}
+                            onClick={() => goToCalendarDate(cell.key)}
+                            aria-label={`${cell.day}日の日記を見る`}
+                          >
+                            {cellContent}
+                          </button>
+                        ) : (
+                          <div key={cell ? cell.key : `blank-${ci}`} className={cellClassName}>
+                            {cellContent}
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>

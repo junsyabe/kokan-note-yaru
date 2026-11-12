@@ -1461,8 +1461,20 @@ body {
   align-items: center;
   justify-content: center;
   gap: 2px;
+  border: none;
   border-radius: 6px;
   min-width: 0;
+  box-sizing: border-box;
+  background: transparent;
+  font-family: inherit;
+  padding: 0;
+  margin: 0;
+}
+button.konote-calendar-cell {
+  cursor: pointer;
+}
+button.konote-calendar-cell:hover {
+  background: rgba(45, 106, 147, 0.08);
 }
 .konote-calendar-cell.is-today {
   border: 1.5px solid var(--kon-peki);
