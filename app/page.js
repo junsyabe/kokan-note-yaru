@@ -122,6 +122,25 @@ function todayStr() {
   return dateStrFromDate(new Date());
 }
 
+// Profile calendar grid for a given month, as full weeks (Sun-first),
+// padded with null on either end to complete the first/last row. Each
+// day's 'YYYY-MM-DD' key is built from the year/month/day numbers directly
+// rather than via new Date('YYYY-MM-DD'), which parses as UTC and can land
+// on the wrong local day.
+function buildCalendarWeeks(year, month) {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startWeekday = new Date(year, month, 1).getDay();
+  const cells = [];
+  for (let i = 0; i < startWeekday; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({ day, key: `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}` });
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
 function withDetail(message, err) {
   return err?.message ? `${message}（${err.message}）` : message;
 }
@@ -335,6 +354,11 @@ export default function HomePage() {
   const [profileTarget, setProfileTarget] = useState(null);
   const [profileStats, setProfileStats] = useState({ count: 0 });
   const [profileStatsLoading, setProfileStatsLoading] = useState(false);
+  const [profilePage, setProfilePage] = useState("record");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
   const [displayNameOverride, setDisplayNameOverride] = useState(null);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
@@ -1646,6 +1670,17 @@ export default function HomePage() {
     };
   }, [reactionPickerEntryId]);
 
+  // Always open the profile modal on its left ("record") page, showing the
+  // current month in the calendar — not tied to the stats fetch below,
+  // which can re-run for other reasons (e.g. communityMembers refreshing)
+  // while the modal is already open and shouldn't yank the view back.
+  useEffect(() => {
+    if (!profileTarget) return;
+    setProfilePage("record");
+    const now = new Date();
+    setCalendarMonth({ year: now.getFullYear(), month: now.getMonth() });
+  }, [profileTarget]);
+
   // --- profile stats (via get_profile_stats RPC, called each time the modal opens) ---
   useEffect(() => {
     if (!profileTarget || !currentCommunityId) {
@@ -1706,6 +1741,7 @@ export default function HomePage() {
           lastDate: row.last_date,
           currentStreak,
           bestStreak,
+          entryDates: uniqueDates,
         });
       });
     return () => {
@@ -1732,6 +1768,50 @@ export default function HomePage() {
     });
     return map;
   }, [communityMembers]);
+
+  // --- profile calendar (right page of the profile modal) ---
+  const calendarWeeks = useMemo(
+    () => buildCalendarWeeks(calendarMonth.year, calendarMonth.month),
+    [calendarMonth]
+  );
+  const calendarEntryDateSet = useMemo(() => new Set(profileStats.entryDates || []), [profileStats.entryDates]);
+  const calendarTodayKey = todayStr();
+  const calendarBounds = useMemo(() => {
+    const now = new Date();
+    const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
+    let minMonthIndex = currentMonthIndex;
+    if (profileStats.firstDate) {
+      const [fy, fm] = profileStats.firstDate.split("-").map(Number);
+      minMonthIndex = fy * 12 + (fm - 1);
+    }
+    return { currentMonthIndex, minMonthIndex };
+  }, [profileStats.firstDate]);
+  const calendarMonthIndex = calendarMonth.year * 12 + calendarMonth.month;
+  const canGoNextMonth = calendarMonthIndex < calendarBounds.currentMonthIndex;
+  const canGoPrevMonth = calendarMonthIndex > calendarBounds.minMonthIndex;
+  const goToCalendarMonth = (delta) => {
+    setCalendarMonth((m) => {
+      const d = new Date(m.year, m.month + delta, 1);
+      return { year: d.getFullYear(), month: d.getMonth() };
+    });
+  };
+
+  // Two-page (record / calendar) layout inside the profile modal: a
+  // horizontally scroll-snapping pair of panes on narrow screens, side by
+  // side on wide ones (see the >=640px rule in globals.css). The tab row
+  // reflects and drives whichever page is in view.
+  const recordPageRef = useRef(null);
+  const calendarPageRef = useRef(null);
+  const scrollToProfilePage = (page) => {
+    const el = page === "record" ? recordPageRef.current : calendarPageRef.current;
+    el?.scrollIntoView({ behavior: "smooth", inline: "start", block: "nearest" });
+  };
+  const handleProfilePagesScroll = (e) => {
+    const el = e.currentTarget;
+    if (!el.clientWidth) return;
+    setProfilePage(Math.round(el.scrollLeft / el.clientWidth) >= 1 ? "calendar" : "record");
+  };
+
   // entries is already scoped to the current filters by the query itself
   // (see fetchEntriesPage above), so no client-side filtering here.
   const groups = {};
@@ -2546,7 +2626,7 @@ export default function HomePage() {
 
       {profileTarget && (
         <div className="konote-modal-backdrop" onClick={() => setProfileTarget(null)}>
-          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="konote-modal konote-profile-modal" onClick={(e) => e.stopPropagation()}>
             <div className="konote-modal-head">
               <h2>プロフィール</h2>
               <button className="konote-modal-close" onClick={() => setProfileTarget(null)} aria-label="閉じる">
@@ -2554,6 +2634,25 @@ export default function HomePage() {
               </button>
             </div>
 
+            <div className="konote-profile-tabs">
+              <button
+                type="button"
+                className={`konote-profile-tab ${profilePage === "record" ? "is-active" : ""}`}
+                onClick={() => scrollToProfilePage("record")}
+              >
+                記録
+              </button>
+              <button
+                type="button"
+                className={`konote-profile-tab ${profilePage === "calendar" ? "is-active" : ""}`}
+                onClick={() => scrollToProfilePage("calendar")}
+              >
+                カレンダー
+              </button>
+            </div>
+
+            <div className="konote-profile-pages" onScroll={handleProfilePagesScroll}>
+            <div className="konote-profile-page" ref={recordPageRef}>
             <div className="konote-profile-head">
               <span className="konote-avatar konote-profile-avatar" style={{ background: colorForName(profileTarget) }}>
                 {profileTarget.charAt(0)}
@@ -2713,6 +2812,65 @@ export default function HomePage() {
                 </button>
               </>
             )}
+            </div>
+
+            <div className="konote-profile-page" ref={calendarPageRef}>
+              <div className="konote-calendar">
+                <div className="konote-calendar-head">
+                  <button
+                    type="button"
+                    className="konote-calendar-nav-btn"
+                    onClick={() => goToCalendarMonth(-1)}
+                    disabled={!canGoPrevMonth}
+                    aria-label="前の月"
+                  >
+                    ◀
+                  </button>
+                  <span className="konote-calendar-title">
+                    {calendarMonth.year}年{calendarMonth.month + 1}月
+                  </span>
+                  <button
+                    type="button"
+                    className="konote-calendar-nav-btn"
+                    onClick={() => goToCalendarMonth(1)}
+                    disabled={!canGoNextMonth}
+                    aria-label="次の月"
+                  >
+                    ▶
+                  </button>
+                </div>
+                <div className="konote-calendar-weekdays">
+                  {WEEKDAY_KANJI.map((wd) => (
+                    <span key={wd}>{wd}</span>
+                  ))}
+                </div>
+                <div className="konote-calendar-grid">
+                  {calendarWeeks.map((week, wi) => (
+                    <div className="konote-calendar-row" key={wi}>
+                      {week.map((cell, ci) => (
+                        <div
+                          key={cell ? cell.key : `blank-${ci}`}
+                          className={`konote-calendar-cell ${cell && cell.key === calendarTodayKey ? "is-today" : ""}`}
+                        >
+                          {cell && (
+                            <>
+                              <span className="konote-calendar-day">{cell.day}</span>
+                              {calendarEntryDateSet.has(cell.key) && (
+                                <span
+                                  className="konote-calendar-dot"
+                                  style={{ background: colorForName(profileTarget) }}
+                                />
+                              )}
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
       )}
