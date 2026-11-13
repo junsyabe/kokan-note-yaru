@@ -170,6 +170,14 @@ body {
   outline: none;
   resize: vertical;
 }
+.konote-textarea {
+  min-height: 45vh;
+  min-height: 45dvh;
+  box-sizing: border-box;
+  /* Auto-grows via JS on input, so a manual drag-resize would just get
+     overwritten by the next keystroke — better to not offer it at all. */
+  resize: none;
+}
 .konote-date-input {
   box-sizing: border-box;
   -webkit-appearance: none;
@@ -992,6 +1000,12 @@ body {
   font-size: 12px;
   padding: 6px 8px;
 }
+.konote-entry-edit-textarea {
+  min-height: 45vh;
+  min-height: 45dvh;
+  box-sizing: border-box;
+  resize: none;
+}
 .konote-edit-title-input {
   width: 100%;
   border: 1px solid rgba(59, 54, 44, 0.25);
@@ -1257,6 +1271,15 @@ body {
   border-radius: 12px;
   padding: 22px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+.konote-entry-form-modal {
+  max-height: calc(100vh - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+}
+.konote-entry-form-modal .konote-submit-btn {
+  position: sticky;
+  bottom: 0;
 }
 .konote-modal-head {
   display: flex;
