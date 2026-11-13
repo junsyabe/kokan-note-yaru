@@ -225,6 +225,14 @@ function clearDraft(key) {
   }
 }
 
+// Grows a textarea to fit its content: collapse to 'auto' first so
+// scrollHeight reflects a shrink too (not just growth), then snap to it.
+function autoGrowTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 function CommunityJoinCreateForm({
   joinCode,
   onJoinCodeChange,
@@ -326,6 +334,7 @@ export default function HomePage() {
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState("");
   const [newDate, setNewDate] = useState(todayStr());
+  const newContentRef = useRef(null);
   const [posting, setPosting] = useState(false);
 
   const [commentDrafts, setCommentDrafts] = useState({});
@@ -336,6 +345,7 @@ export default function HomePage() {
   const [editEntryDraft, setEditEntryDraft] = useState("");
   const [editEntryDateDraft, setEditEntryDateDraft] = useState("");
   const [savingEntryEdit, setSavingEntryEdit] = useState(false);
+  const editEntryTextareaRef = useRef(null);
 
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editCommentDraft, setEditCommentDraft] = useState("");
@@ -1334,6 +1344,21 @@ export default function HomePage() {
     return () => clearTimeout(timer);
   }, [showForm, newTitle, newContent, newDate]);
 
+  // The textarea grows with each keystroke via its own onChange handler,
+  // but a restored draft sets newContent programmatically on open — this
+  // catches that case, running once the modal (and its now-filled
+  // textarea) has actually mounted.
+  useEffect(() => {
+    if (showForm) autoGrowTextarea(newContentRef.current);
+  }, [showForm]);
+
+  // Same idea for the inline entry-edit textarea: it opens pre-filled with
+  // the existing body, so it needs an initial resize too, not just on
+  // every keystroke from here on.
+  useEffect(() => {
+    if (editingEntryId) autoGrowTextarea(editEntryTextareaRef.current);
+  }, [editingEntryId]);
+
   // Comment drafts: restore any saved draft the first time an entry shows
   // up locally (won't clobber whatever the user is actively typing).
   useEffect(() => {
@@ -2286,10 +2311,13 @@ export default function HomePage() {
                           maxLength={60}
                         />
                         <textarea
-                          className="konote-edit-textarea"
+                          ref={editEntryTextareaRef}
+                          className="konote-edit-textarea konote-entry-edit-textarea"
                           value={editEntryDraft}
-                          onChange={(e) => setEditEntryDraft(e.target.value)}
-                          rows={4}
+                          onChange={(e) => {
+                            setEditEntryDraft(e.target.value);
+                            autoGrowTextarea(e.target);
+                          }}
                         />
                         <input
                           type="date"
@@ -2576,7 +2604,7 @@ export default function HomePage() {
 
       {showForm && (
         <div className="konote-modal-backdrop" onClick={() => !posting && setShowForm(false)}>
-          <div className="konote-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="konote-modal konote-entry-form-modal" onClick={(e) => e.stopPropagation()}>
             <div className="konote-modal-head">
               <h2>今日の一言</h2>
               <button className="konote-modal-close" onClick={() => setShowForm(false)} aria-label="閉じる">
@@ -2601,11 +2629,14 @@ export default function HomePage() {
             />
             <label className="konote-field-label">今日の出来事</label>
             <textarea
+              ref={newContentRef}
               className="konote-textarea"
               value={newContent}
-              onChange={(e) => setNewContent(e.target.value)}
+              onChange={(e) => {
+                setNewContent(e.target.value);
+                autoGrowTextarea(e.target);
+              }}
               placeholder="今日はどんな一日だった？"
-              rows={5}
             />
             <label className="konote-field-label">投稿先コミュニティ</label>
             <div className="konote-community-checkbox-list">
