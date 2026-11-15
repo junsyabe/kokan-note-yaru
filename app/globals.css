@@ -171,8 +171,17 @@ body {
   resize: vertical;
 }
 .konote-textarea {
-  min-height: 45vh;
-  min-height: 45dvh;
+  /* The min-height comes from the rows attribute in the markup (8 rows),
+     not from here — it needs to stay content-sized rather than a fixed
+     CSS height so autoGrowTextarea's height:auto reset falls back to it
+     correctly for short drafts. max-height is capped to the on-screen
+     keyboard's --vvh (see the visualViewport effect in page.js) rather
+     than dvh, which doesn't account for the keyboard; 170px covers the
+     modal's own padding plus the keyboard's autocomplete bar. Past that,
+     the box scrolls internally instead of growing under the keyboard. */
+  max-height: min(60dvh, calc(var(--vvh, 100dvh) - 170px));
+  overflow-y: auto;
+  padding-bottom: 1.5em;
   box-sizing: border-box;
   /* Auto-grows via JS on input, so a manual drag-resize would just get
      overwritten by the next keystroke — better to not offer it at all. */
@@ -1001,8 +1010,12 @@ body {
   padding: 6px 8px;
 }
 .konote-entry-edit-textarea {
-  min-height: 45vh;
-  min-height: 45dvh;
+  /* Same sizing approach as .konote-textarea (new-entry modal) — see the
+     comment there. A long diary entry now scrolls inside the textarea
+     rather than always showing its full body at once. */
+  max-height: min(60dvh, calc(var(--vvh, 100dvh) - 170px));
+  overflow-y: auto;
+  padding-bottom: 1.5em;
   box-sizing: border-box;
   resize: none;
 }
