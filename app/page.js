@@ -233,6 +233,17 @@ function autoGrowTextarea(el) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
+// On focus, once the on-screen keyboard has finished animating in, bring
+// the textarea's top edge into view and re-settle its height against the
+// (by then updated) --vvh-based max-height.
+function handleEntryTextareaFocus(e) {
+  const el = e.target;
+  setTimeout(() => {
+    el.scrollIntoView({ block: "start", behavior: "smooth" });
+    autoGrowTextarea(el);
+  }, 300);
+}
+
 function CommunityJoinCreateForm({
   joinCode,
   onJoinCodeChange,
@@ -956,6 +967,28 @@ export default function HomePage() {
     document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [refreshEntries]);
+
+  // Tracks the actually-visible viewport height (behind the on-screen
+  // keyboard on iOS, dvh doesn't shrink) in a --vvh custom property, so
+  // the entry textarea's max-height (see globals.css) can stay clear of
+  // the keyboard instead of growing underneath it. Falls back to 100dvh
+  // itself where visualViewport isn't available.
+  useEffect(() => {
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+    if (!vv) {
+      root.style.setProperty("--vvh", "100dvh");
+      return;
+    }
+    const updateVvh = () => root.style.setProperty("--vvh", `${vv.height}px`);
+    updateVvh();
+    vv.addEventListener("resize", updateVvh);
+    vv.addEventListener("scroll", updateVvh);
+    return () => {
+      vv.removeEventListener("resize", updateVvh);
+      vv.removeEventListener("scroll", updateVvh);
+    };
+  }, []);
 
   const loadMoreEntries = useCallback(async () => {
     if (loadingMore || !hasMore || !currentCommunityId || entries.length === 0) return;
@@ -2318,6 +2351,8 @@ export default function HomePage() {
                             setEditEntryDraft(e.target.value);
                             autoGrowTextarea(e.target);
                           }}
+                          onFocus={handleEntryTextareaFocus}
+                          rows={8}
                         />
                         <input
                           type="date"
@@ -2637,6 +2672,8 @@ export default function HomePage() {
                 autoGrowTextarea(e.target);
               }}
               placeholder="今日はどんな一日だった？"
+              onFocus={handleEntryTextareaFocus}
+              rows={8}
             />
             <label className="konote-field-label">投稿先コミュニティ</label>
             <div className="konote-community-checkbox-list">
