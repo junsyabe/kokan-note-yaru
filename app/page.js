@@ -357,6 +357,10 @@ export default function HomePage() {
   const [editEntryDateDraft, setEditEntryDateDraft] = useState("");
   const [savingEntryEdit, setSavingEntryEdit] = useState(false);
   const editEntryTextareaRef = useRef(null);
+  const [editEntryAvailableCommunities, setEditEntryAvailableCommunities] = useState([]);
+  const [editEntryExtraCommunityIds, setEditEntryExtraCommunityIds] = useState([]);
+  const [confirmAddCommunities, setConfirmAddCommunities] = useState(false);
+  const [addedCommunitiesNotice, setAddedCommunitiesNotice] = useState(null);
 
   const [editingCommentId, setEditingCommentId] = useState(null);
   const [editCommentDraft, setEditCommentDraft] = useState("");
@@ -1515,11 +1519,22 @@ export default function HomePage() {
     }
   };
 
-  const startEditEntry = (entry) => {
+  const startEditEntry = async (entry) => {
     setEditingEntryId(entry.id);
     setEditEntryTitleDraft(entry.title || "");
     setEditEntryDraft(entry.content);
     setEditEntryDateDraft(entry.entry_date);
+    setEditEntryExtraCommunityIds([]);
+    setConfirmAddCommunities(false);
+    setEditEntryAvailableCommunities([]);
+    // Candidates to add this entry to: communities the author is in that
+    // it isn't already linked to (a single small query against the join
+    // table — the current community is always among the linked ones
+    // already, so it's excluded automatically here too).
+    const { data, error } = await supabase.from("entry_communities").select("community_id").eq("entry_id", entry.id);
+    if (error) return;
+    const linkedIds = new Set((data || []).map((r) => r.community_id));
+    setEditEntryAvailableCommunities(myCommunities.filter((c) => !linkedIds.has(c.id)));
   };
 
   const cancelEditEntry = () => {
@@ -1527,29 +1542,84 @@ export default function HomePage() {
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
     setEditEntryDateDraft("");
+    setEditEntryExtraCommunityIds([]);
+    setConfirmAddCommunities(false);
+    setEditEntryAvailableCommunities([]);
   };
 
   const saveEditEntry = async (entryId) => {
     const trimmed = editEntryDraft.trim();
     if (!trimmed || !editEntryDateDraft) return;
     setSavingEntryEdit(true);
+
     const updatedFields = {
       title: editEntryTitleDraft.trim() || null,
       content: trimmed,
       entry_date: editEntryDateDraft,
-      updated_at: new Date().toISOString(),
     };
-    const { error } = await supabase.from("diary_entries").update(updatedFields).eq("id", entryId);
-    setSavingEntryEdit(false);
-    if (error) {
-      setErrorMsg(withDetail("日記の更新に失敗しました。", error));
-      return;
+    const original = entries.find((e) => e.id === entryId);
+    const hasContentChanges =
+      !original ||
+      original.title !== updatedFields.title ||
+      original.content !== updatedFields.content ||
+      original.entry_date !== updatedFields.entry_date;
+
+    // The content update runs first, and only if there's one to run: doing
+    // the community links first would also notify the newly-added
+    // communities' members about a content update that hadn't happened yet.
+    if (hasContentChanges) {
+      const fieldsWithTimestamp = { ...updatedFields, updated_at: new Date().toISOString() };
+      const { error } = await supabase.from("diary_entries").update(fieldsWithTimestamp).eq("id", entryId);
+      if (error) {
+        setSavingEntryEdit(false);
+        setErrorMsg(withDetail("日記の更新に失敗しました。", error));
+        return;
+      }
+      setEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...fieldsWithTimestamp } : e)));
     }
-    setEntries((prev) => prev.map((e) => (e.id === entryId ? { ...e, ...updatedFields } : e)));
+
+    if (editEntryExtraCommunityIds.length > 0) {
+      const results = await Promise.all(
+        editEntryExtraCommunityIds.map((communityId) =>
+          supabase
+            .from("entry_communities")
+            .insert({ entry_id: entryId, community_id: communityId })
+            .then(({ error: linkError }) => ({ communityId, error: linkError }))
+        )
+      );
+      const nameOf = (communityId) => editEntryAvailableCommunities.find((c) => c.id === communityId)?.name;
+      // A unique-violation means it's already linked — same end state as
+      // a successful insert, so it counts as one.
+      const succeededNames = results
+        .filter((r) => !r.error || r.error.code === "23505")
+        .map((r) => nameOf(r.communityId))
+        .filter(Boolean);
+      const failed = results.filter((r) => r.error && r.error.code !== "23505");
+      if (succeededNames.length > 0) {
+        setAddedCommunitiesNotice({
+          entryId,
+          text: `${succeededNames.map((n) => `『${n}』`).join("")}にも投稿しました`,
+        });
+        const noticeEntryId = entryId;
+        setTimeout(
+          () => setAddedCommunitiesNotice((cur) => (cur?.entryId === noticeEntryId ? null : cur)),
+          4000
+        );
+      }
+      if (failed.length > 0) {
+        const failedNames = failed.map((r) => nameOf(r.communityId)).filter(Boolean).join("、");
+        setErrorMsg(withDetail(`${failedNames}への追加に失敗しました。`, failed[0].error));
+      }
+    }
+
+    setSavingEntryEdit(false);
     setEditingEntryId(null);
     setEditEntryTitleDraft("");
     setEditEntryDraft("");
     setEditEntryDateDraft("");
+    setEditEntryExtraCommunityIds([]);
+    setConfirmAddCommunities(false);
+    setEditEntryAvailableCommunities([]);
   };
 
   const startEditComment = (comment) => {
@@ -2342,6 +2412,7 @@ export default function HomePage() {
                           onChange={(e) => setEditEntryTitleDraft(e.target.value)}
                           placeholder="タイトル(任意)"
                           maxLength={60}
+                          disabled={confirmAddCommunities}
                         />
                         <textarea
                           ref={editEntryTextareaRef}
@@ -2353,34 +2424,98 @@ export default function HomePage() {
                           }}
                           onFocus={handleEntryTextareaFocus}
                           rows={8}
+                          disabled={confirmAddCommunities}
                         />
                         <input
                           type="date"
                           className="konote-date-input konote-edit-date-input"
                           value={editEntryDateDraft}
                           onChange={(e) => setEditEntryDateDraft(e.target.value)}
+                          disabled={confirmAddCommunities}
                         />
-                        <div className="konote-edit-actions">
-                          <button
-                            className="konote-edit-cancel"
-                            onClick={cancelEditEntry}
-                            disabled={savingEntryEdit}
-                          >
-                            キャンセル
-                          </button>
-                          <button
-                            className="konote-edit-save"
-                            onClick={() => saveEditEntry(entry.id)}
-                            disabled={!editEntryDraft.trim() || !editEntryDateDraft || savingEntryEdit}
-                          >
-                            {savingEntryEdit ? "保存中…" : "保存"}
-                          </button>
-                        </div>
+                        {editEntryAvailableCommunities.length > 0 && (
+                          <>
+                            <label className="konote-field-label">他のコミュニティにも投稿</label>
+                            <div className="konote-community-checkbox-list">
+                              {editEntryAvailableCommunities.map((c) => (
+                                <label key={c.id} className="konote-community-checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={editEntryExtraCommunityIds.includes(c.id)}
+                                    disabled={confirmAddCommunities}
+                                    onChange={(e) => {
+                                      setEditEntryExtraCommunityIds((prev) =>
+                                        e.target.checked ? [...prev, c.id] : prev.filter((id) => id !== c.id)
+                                      );
+                                    }}
+                                  />
+                                  {c.name}
+                                </label>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        {confirmAddCommunities ? (
+                          <div className="konote-delete-confirm">
+                            <p className="konote-delete-confirm-text">
+                              {editEntryExtraCommunityIds
+                                .map((id) => editEntryAvailableCommunities.find((c) => c.id === id)?.name)
+                                .filter(Boolean)
+                                .map((n) => `『${n}』`)
+                                .join("")}
+                              のメンバーにも、この日記が見えるようになります。コメントは引き継がれません。この追加は、あとから取り消せません。
+                            </p>
+                            <div className="konote-edit-actions">
+                              <button
+                                className="konote-edit-cancel"
+                                onClick={() => setConfirmAddCommunities(false)}
+                                disabled={savingEntryEdit}
+                              >
+                                戻る
+                              </button>
+                              <button
+                                className="konote-delete-confirm-btn"
+                                onClick={() => saveEditEntry(entry.id)}
+                                disabled={savingEntryEdit}
+                              >
+                                {savingEntryEdit ? "保存中…" : "追加して保存"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="konote-edit-actions">
+                            <button
+                              className="konote-edit-cancel"
+                              onClick={cancelEditEntry}
+                              disabled={savingEntryEdit}
+                            >
+                              キャンセル
+                            </button>
+                            <button
+                              className="konote-edit-save"
+                              onClick={() => {
+                                if (editEntryExtraCommunityIds.length > 0) {
+                                  setConfirmAddCommunities(true);
+                                } else {
+                                  saveEditEntry(entry.id);
+                                }
+                              }}
+                              disabled={!editEntryDraft.trim() || !editEntryDateDraft || savingEntryEdit}
+                            >
+                              {savingEntryEdit ? "保存中…" : "保存"}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <>
                         {entry.title && <h3 className="konote-entry-title">{entry.title}</h3>}
                         <p className="konote-entry-content">{entry.content}</p>
+                        {addedCommunitiesNotice?.entryId === entry.id && (
+                          <p className="konote-error" style={{ color: "var(--kon-peki)" }}>
+                            {addedCommunitiesNotice.text}
+                          </p>
+                        )}
                       </>
                     )}
 
