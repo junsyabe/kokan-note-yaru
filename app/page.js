@@ -2343,7 +2343,7 @@ export default function HomePage() {
                             {formatTime(entry.entry_date, entry.created_at)}
                           </span>
                           <span className="konote-entry-time konote-time-edited">
-                            編集 {formatTime(entry.entry_date, entry.updated_at)}
+                            編集 {formatCommentTime(entry.updated_at)}
                           </span>
                         </div>
                       ) : (
