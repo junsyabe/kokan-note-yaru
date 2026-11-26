@@ -83,6 +83,7 @@ function stampRotation(dateStr) {
 
 function formatTime(entryDate, createdAtIso) {
   const created = new Date(createdAtIso);
+  if (!entryDate || Number.isNaN(created.getTime())) return "";
   const mm = String(created.getMinutes()).padStart(2, "0");
 
   const createdDateStr = dateStrFromDate(created);
@@ -106,6 +107,7 @@ function formatTime(entryDate, createdAtIso) {
 
 function formatCommentTime(iso) {
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${formatDateStamp(dateStrFromDate(d)).main} ${hh}:${mm}`;
@@ -330,10 +332,18 @@ export default function HomePage() {
   const [authNotice, setAuthNotice] = useState(null);
 
   const [entries, setEntries] = useState([]);
+  const entriesRef = useRef(entries);
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
   const [entriesLoading, setEntriesLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [expandedEntryIds, setExpandedEntryIds] = useState(() => new Set());
+  const expandedEntryIdsRef = useRef(expandedEntryIds);
+  useEffect(() => {
+    expandedEntryIdsRef.current = expandedEntryIds;
+  }, [expandedEntryIds]);
   const [expandingEntryId, setExpandingEntryId] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [selectedAuthor, setSelectedAuthor] = useState(null);
@@ -902,6 +912,52 @@ export default function HomePage() {
     }));
   }, []);
 
+  // Full detail for a batch of entry ids, keyed by id — used to re-fetch
+  // whichever entries are currently expanded in list mode, since a lite
+  // list refresh (see loadEntries) only returns the collapsed-row shape
+  // (no content/updated_at/comments/reactions) and would otherwise blank
+  // out an expanded card.
+  const fetchExpandedDetails = useCallback(async (entryIds, communityId) => {
+    if (entryIds.length === 0) return {};
+    const [
+      { data: entryRows, error: entryErr },
+      { data: commentRows, error: commentErr },
+      { data: reactionRows, error: reactionErr },
+    ] = await Promise.all([
+      supabase.from("diary_entries").select("*").in("id", entryIds),
+      supabase
+        .from("comments")
+        .select("*")
+        .in("entry_id", entryIds)
+        .eq("community_id", communityId)
+        .order("created_at", { ascending: true }),
+      supabase.from("reactions").select("*").in("entry_id", entryIds).eq("community_id", communityId),
+    ]);
+    if (entryErr) throw entryErr;
+    if (commentErr) throw commentErr;
+    if (reactionErr) throw reactionErr;
+    const commentsByEntry = {};
+    (commentRows || []).forEach((c) => {
+      if (!commentsByEntry[c.entry_id]) commentsByEntry[c.entry_id] = [];
+      commentsByEntry[c.entry_id].push(c);
+    });
+    const reactionsByEntry = {};
+    (reactionRows || []).forEach((r) => {
+      if (!reactionsByEntry[r.entry_id]) reactionsByEntry[r.entry_id] = [];
+      reactionsByEntry[r.entry_id].push(r);
+    });
+    const byId = {};
+    (entryRows || []).forEach((e) => {
+      byId[e.id] = {
+        ...e,
+        comments: commentsByEntry[e.id] || [],
+        reactions: reactionsByEntry[e.id] || [],
+        lite: false,
+      };
+    });
+    return byId;
+  }, []);
+
   // Shared fetch for the current community/filter combination. Used both by
   // the reset effect below and by the manual/background refresh triggers
   // (visibility-resume, pull-to-refresh) further down — none of them rely
@@ -910,9 +966,40 @@ export default function HomePage() {
     const rows = isListMode
       ? await fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, null)
       : await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, null);
-    setEntries(rows);
-    setHasMore(rows.length === PAGE_SIZE);
-    setErrorMsg(null);
+
+    if (isListMode) {
+      // A lite refresh's rows have no content/updated_at/comments/reactions
+      // — if any of them are currently expanded, keep showing their old
+      // (full) data for now rather than collapsing back to the lite shape,
+      // and re-fetch just those in detail right after. On failure, or
+      // while that re-fetch is in flight, the old detail stays put.
+      const expandedIds = expandedEntryIdsRef.current;
+      const prevById = {};
+      entriesRef.current.forEach((e) => {
+        prevById[e.id] = e;
+      });
+      const merged = rows.map((r) =>
+        expandedIds.has(r.id) && prevById[r.id] && !prevById[r.id].lite ? prevById[r.id] : r
+      );
+      setEntries(merged);
+      setHasMore(rows.length === PAGE_SIZE);
+      setErrorMsg(null);
+
+      const idsToRefresh = rows.filter((r) => expandedIds.has(r.id)).map((r) => r.id);
+      if (idsToRefresh.length > 0) {
+        try {
+          const details = await fetchExpandedDetails(idsToRefresh, currentCommunityId);
+          setEntries((prev) => prev.map((e) => details[e.id] || e));
+        } catch {
+          // Keep whatever was already showing.
+        }
+      }
+    } else {
+      setEntries(rows);
+      setHasMore(rows.length === PAGE_SIZE);
+      setErrorMsg(null);
+    }
+
     // Refreshed on the same timing as the list itself (app open, community
     // switch, filter change, visibility-resume, pull-to-refresh) — not on
     // pagination, since this doesn't depend on which page is in view. Fire
@@ -923,7 +1010,16 @@ export default function HomePage() {
         if (recent.length > 0) setRecentReactionEmojis(recent);
       });
     }
-  }, [session, currentCommunityId, selectedAuthorId, selectedDate, isListMode, fetchEntriesPage, fetchEntriesPageLite]);
+  }, [
+    session,
+    currentCommunityId,
+    selectedAuthorId,
+    selectedDate,
+    isListMode,
+    fetchEntriesPage,
+    fetchEntriesPageLite,
+    fetchExpandedDetails,
+  ]);
 
   // Reset & fetch the first page whenever the community or a filter changes.
   useEffect(() => {
@@ -1002,7 +1098,14 @@ export default function HomePage() {
       const rows = isListMode
         ? await fetchEntriesPageLite(currentCommunityId, selectedAuthorId, selectedDate, cursor)
         : await fetchEntriesPage(currentCommunityId, selectedAuthorId, selectedDate, cursor);
-      setEntries((prev) => [...prev, ...rows]);
+      // Pagination only ever moves the cursor further back, so a fetched
+      // row shouldn't already be in the list — this is just a defensive
+      // guard against ever downgrading an already-expanded entry's full
+      // data with a duplicate lite row.
+      setEntries((prev) => {
+        const existingIds = new Set(prev.map((e) => e.id));
+        return [...prev, ...rows.filter((r) => !existingIds.has(r.id))];
+      });
       setHasMore(rows.length === PAGE_SIZE);
     } catch (err) {
       setErrorMsg(withDetail("日記の読み込みに失敗しました。", err));
@@ -1924,14 +2027,13 @@ export default function HomePage() {
     });
   };
 
-  // Tapping a day with a post reuses the existing friend+date filter
-  // (rather than jumping to one specific entry) so a day with more than
-  // one post from this person shows all of them, same as using the
-  // filter chips/date picker by hand would.
+  // Tapping a day with a post filters by that date alone (clearing any
+  // friend filter back to "すべて"), rather than one specific entry, so a
+  // day with more than one post — from this person or, once the friend
+  // filter is cleared, anyone else too — shows all of them.
   const goToCalendarDate = (dateKey) => {
-    const author = profileTarget;
     setProfileTarget(null);
-    setSelectedAuthor(author);
+    setSelectedAuthor(null);
     setSelectedDate(dateKey);
   };
 
@@ -2191,25 +2293,42 @@ export default function HomePage() {
         {!entriesLoading && communityMemberNames.length > 0 && (
           <div className="konote-filter-wrap">
             <div className="konote-filter-row">
-              <button
-                type="button"
-                className="konote-date-filter-btn"
-                onClick={() => {
-                  setDateFilterDraft(selectedDate || todayStr());
-                  setShowDateFilter((v) => !v);
-                }}
-                aria-label="日付で絞り込む"
-                title="日付で絞り込む"
-              >
-                📅
-              </button>
-              {selectedDate && (
+              {selectedDate ? (
+                <div className="konote-date-filter-chip">
+                  <button
+                    type="button"
+                    className="konote-date-filter-chip-body"
+                    onClick={() => {
+                      setDateFilterDraft(selectedDate);
+                      setShowDateFilter((v) => !v);
+                    }}
+                    aria-label="日付を変更"
+                    title="日付を変更"
+                  >
+                    📅 {formatDateStamp(selectedDate).main}
+                  </button>
+                  <button
+                    type="button"
+                    className="konote-date-filter-chip-close"
+                    onClick={() => setSelectedDate(null)}
+                    aria-label="日付の絞り込みを解除"
+                    title="日付の絞り込みを解除"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
                 <button
                   type="button"
-                  className="konote-date-filter-active-chip"
-                  onClick={() => setSelectedDate(null)}
+                  className="konote-date-filter-btn"
+                  onClick={() => {
+                    setDateFilterDraft(todayStr());
+                    setShowDateFilter((v) => !v);
+                  }}
+                  aria-label="日付で絞り込む"
+                  title="日付で絞り込む"
                 >
-                  {formatDateStamp(selectedDate).main}のみ表示中 ✕
+                  📅
                 </button>
               )}
               <button
@@ -2337,7 +2456,7 @@ export default function HomePage() {
                       >
                         {entry.author_name}
                       </button>
-                      {entry.updated_at !== entry.created_at ? (
+                      {!entry.lite && entry.updated_at && entry.updated_at !== entry.created_at ? (
                         <div className="konote-entry-time-block">
                           <span className="konote-entry-time">
                             {formatTime(entry.entry_date, entry.created_at)}
