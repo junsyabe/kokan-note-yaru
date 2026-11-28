@@ -331,6 +331,22 @@ export default function HomePage() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState(null);
 
+  // Which signed-out screen to show: the normal login/signup card, the
+  // "forgot password" request form, or the "set a new password" screen
+  // reached from the email link (see the PASSWORD_RECOVERY handling below).
+  const [authView, setAuthView] = useState("login");
+  const [resetSending, setResetSending] = useState(false);
+  const [resetNotice, setResetNotice] = useState(null);
+  const [resetError, setResetError] = useState(null);
+  const [resetCooldownUntil, setResetCooldownUntil] = useState(0);
+  const [resetCooldownRemaining, setResetCooldownRemaining] = useState(0);
+  const [newPassword, setNewPassword] = useState("");
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
+  const [recoverySaving, setRecoverySaving] = useState(false);
+  const [recoveryError, setRecoveryError] = useState(null);
+  const [recoveryNotice, setRecoveryNotice] = useState(null);
+  const [recoveryLinkExpired, setRecoveryLinkExpired] = useState(false);
+
   const [entries, setEntries] = useState([]);
   const entriesRef = useRef(entries);
   useEffect(() => {
@@ -442,11 +458,47 @@ export default function HomePage() {
   // --- auth bootstrap ---
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, sess) => {
+      // A password-recovery email link signs the user in (sess becomes
+      // truthy) specifically so updateUser() can work — without this
+      // check that would otherwise just land them in the normal diary
+      // screen instead of letting them set a new password.
+      if (event === "PASSWORD_RECOVERY") {
+        setAuthView("recovery");
+      }
       setSession(sess);
     });
     return () => listener.subscription.unsubscribe();
   }, []);
+
+  // Fallback for the same case: if this effect's listener wasn't attached
+  // yet when the recovery link's redirect fired the event, a recovery
+  // link still leaves `type=recovery` in the URL (hash for the implicit
+  // flow this app uses, but checked in the query too just in case) to
+  // catch it here instead.
+  useEffect(() => {
+    const hash = window.location.hash || "";
+    const search = window.location.search || "";
+    if (hash.includes("type=recovery") || search.includes("type=recovery")) {
+      setAuthView("recovery");
+    }
+  }, []);
+
+  // Password-reset resend cooldown: ticks once a second while active, and
+  // stops itself once it reaches zero.
+  useEffect(() => {
+    if (!resetCooldownUntil) return;
+    const update = () => {
+      const remaining = Math.max(0, Math.ceil((resetCooldownUntil - Date.now()) / 1000));
+      setResetCooldownRemaining(remaining);
+      return remaining;
+    };
+    if (update() <= 0) return;
+    const interval = setInterval(() => {
+      if (update() <= 0) clearInterval(interval);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resetCooldownUntil]);
 
   const myName =
     displayNameOverride || session?.user?.user_metadata?.display_name || session?.user?.email || "";
@@ -1320,6 +1372,64 @@ export default function HomePage() {
     await supabase.auth.signOut();
   };
 
+  // Drops the recovery link's hash/query tokens from the address bar once
+  // we're done trying to use them (either it worked, or we've given up on
+  // it as expired) — not any earlier, since the implicit-flow client reads
+  // those same tokens to establish the recovery session in the first place.
+  const clearRecoveryUrlParams = () => {
+    const url = new URL(window.location.href);
+    url.hash = "";
+    url.search = "";
+    window.history.replaceState({}, "", url.toString());
+  };
+
+  const handleSendPasswordReset = async () => {
+    setResetError(null);
+    setResetNotice(null);
+    setResetSending(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    });
+    setResetSending(false);
+    if (error) {
+      setResetError("しばらく時間をおいてからもう一度お試しください。");
+      return;
+    }
+    // Same message whether or not the address is actually registered —
+    // telling the difference would let someone probe for registered emails.
+    setResetNotice(
+      "登録されているメールアドレスなら、再設定用のメールを送りました。届かない場合は迷惑メールフォルダも確認してください。"
+    );
+    setResetCooldownUntil(Date.now() + 60000);
+  };
+
+  const handleUpdatePassword = async () => {
+    setRecoveryError(null);
+    if (newPassword.length < 6) {
+      setRecoveryError("パスワードは6文字以上にしてください。");
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      setRecoveryError("パスワードが一致しません。");
+      return;
+    }
+    setRecoverySaving(true);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setRecoverySaving(false);
+    if (error) {
+      setRecoveryLinkExpired(true);
+      return;
+    }
+    clearRecoveryUrlParams();
+    setNewPassword("");
+    setNewPasswordConfirm("");
+    setRecoveryNotice("パスワードを変更しました。");
+    setTimeout(() => {
+      setAuthView("login");
+      setRecoveryNotice(null);
+    }, 1500);
+  };
+
   const startEditName = () => {
     setNameDraft(myName);
     setNameError(null);
@@ -2065,11 +2175,130 @@ export default function HomePage() {
     list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
   );
 
+  // --- render: new-password screen from a password-recovery email link ---
+  // Checked before the loading/signed-out branches below: a recovery link
+  // signs the user in, so without this check they'd otherwise land
+  // straight in the normal diary screen.
+  if (authView === "recovery") {
+    return (
+      <div className="konote-app konote-onboarding">
+        <div className="konote-cover">
+          <div className="konote-ribbon" />
+          <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
+          <h1 className="konote-title">こうかんノート</h1>
+          <p className="konote-subtitle">新しいパスワードを設定</p>
+
+          <div className="konote-auth-card">
+            {recoveryLinkExpired ? (
+              <>
+                <p className="konote-error">リンクの有効期限が切れています。もう一度メールを送ってください。</p>
+                <button
+                  className="konote-join-btn"
+                  onClick={() => {
+                    clearRecoveryUrlParams();
+                    setRecoveryLinkExpired(false);
+                    setAuthView("forgot");
+                  }}
+                >
+                  再設定メールの送信画面へ
+                </button>
+              </>
+            ) : recoveryNotice ? (
+              <p className="konote-error" style={{ color: "#2D6A93" }}>
+                {recoveryNotice}
+              </p>
+            ) : (
+              <>
+                <label className="konote-field-label">新しいパスワード</label>
+                <input
+                  className="konote-auth-input"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="6文字以上"
+                />
+                <label className="konote-field-label">もう一度入力</label>
+                <input
+                  className="konote-auth-input"
+                  type="password"
+                  value={newPasswordConfirm}
+                  onChange={(e) => setNewPasswordConfirm(e.target.value)}
+                  placeholder="もう一度入力してください"
+                />
+                <button
+                  className="konote-join-btn"
+                  onClick={handleUpdatePassword}
+                  disabled={recoverySaving || !newPassword || !newPasswordConfirm}
+                >
+                  {recoverySaving ? "保存中…" : "パスワードを変更する"}
+                </button>
+                {recoveryError && <p className="konote-error">{recoveryError}</p>}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // --- render: loading ---
   if (session === undefined) {
     return (
       <div className="konote-app konote-loading-screen">
         <p className="konote-loading-text">読み込み中…</p>
+      </div>
+    );
+  }
+
+  // --- render: password-reset request screen ---
+  if (authView === "forgot") {
+    return (
+      <div className="konote-app konote-onboarding">
+        <div className="konote-cover">
+          <div className="konote-ribbon" />
+          <p className="konote-eyebrow">SHARED DIARY FOR FRIENDS</p>
+          <h1 className="konote-title">こうかんノート</h1>
+          <p className="konote-subtitle">パスワードの再設定</p>
+
+          <div className="konote-auth-card">
+            <label className="konote-field-label">メールアドレス</label>
+            <input
+              className="konote-auth-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+            />
+            <button
+              className="konote-join-btn"
+              onClick={handleSendPasswordReset}
+              disabled={resetSending || !email.trim() || resetCooldownRemaining > 0}
+            >
+              {resetSending
+                ? "送信中…"
+                : resetCooldownRemaining > 0
+                ? `再送まで${resetCooldownRemaining}秒`
+                : "再設定メールを送る"}
+            </button>
+            {resetError && <p className="konote-error">{resetError}</p>}
+            {resetNotice && (
+              <p className="konote-error" style={{ color: "#2D6A93" }}>
+                {resetNotice}
+              </p>
+            )}
+            <button
+              type="button"
+              className="konote-text-link"
+              onClick={() => {
+                setAuthView("login");
+                setResetError(null);
+                setResetNotice(null);
+              }}
+            >
+              ログインに戻る
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -2156,6 +2385,21 @@ export default function HomePage() {
             </button>
             {authError && <p className="konote-error">{authError}</p>}
             {authNotice && <p className="konote-error" style={{ color: "#2D6A93" }}>{authNotice}</p>}
+            {mode === "login" && (
+              <button
+                type="button"
+                className="konote-text-link"
+                onClick={() => {
+                  setAuthView("forgot");
+                  setAuthError(null);
+                  setAuthNotice(null);
+                  setResetError(null);
+                  setResetNotice(null);
+                }}
+              >
+                パスワードを忘れた方はこちら
+              </button>
+            )}
           </div>
         </div>
       </div>
